@@ -98,6 +98,18 @@ class CoreTest {
         val unknown = SamsungTvStatus("TV", "", null, null)
         assertTrue(fix("192.168.1.14", "192.168.1.9", unknown, lastGood = "192.168.1.11").fix!!.contains("changed from 192.168.1.11 to 192.168.1.14"))
         assertTrue(fix("192.168.1.14", "192.168.1.9", unknown).fix!!.startsWith("boom"))
+
+        // Real response shape from a 2023 Crystal UHD: the name is HTML-escaped.
+        val crystal = TvNetwork.parseStatus("""{"device":{"name":"65&quot; Crystal UHD","modelName":"UA65CUE70AKLXL","developerMode":"1","developerIP":"192.168.1.8"}}""")
+        assertEquals("65\" Crystal UHD", crystal?.name)
+        assertEquals("Tom & Jerry's TV", TvNetwork.decodeEntities("Tom &amp; Jerry&#39;s TV"))
+
+        // Emulators: never tell the user to type the emulator's 10.0.2.x address on the TV.
+        assertTrue(TvNetwork.isEmulatorAddress("10.0.2.15") && !TvNetwork.isEmulatorAddress("10.0.20.15"))
+        val emu = fix("10.0.2.15", "192.168.1.9", crystal)
+        assertTrue(emu.fix!!.contains("computer's Wi-Fi IP") && emu.fix!!.contains("instead of 192.168.1.8 (run ipconfig"))
+        assertTrue(emu.rows.none { it.state == CheckState.FAIL && it.text.contains("Host PC IP") })
+        assertTrue(!fix("10.0.2.15", "192.168.1.9", null).rows.last().text.contains("different network"))
     }
 
     @Test

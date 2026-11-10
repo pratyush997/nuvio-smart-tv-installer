@@ -2,6 +2,12 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- TV names with quotes showed as `65&quot; Crystal UHD`.
+- In an Android emulator (MSI App Player, BlueStacks), the address check told you to type the emulator's 10.0.2.x address on the TV. It now tells you to use your computer's Wi-Fi IP.
+
 ## [1.2.0] - 2026-11-10
 
 ### Changed
