@@ -2,7 +2,7 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.1] - 2026-11-10
 
 ### Added
 - **About** popup, opened from the About button at the top of the main screen: version, licence, author (Pratyush), and links to the GitHub repo and to report a problem.
@@ -63,6 +63,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.3.1]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.1
 [1.3.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.0
 [1.2.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.2.0
 [1.1.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.1.0
