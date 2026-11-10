@@ -49,6 +49,7 @@ When a new version of this app is out, it shows a banner and sends a notificatio
 
 Samsung TVs only accept an update signed with the same certificate as the first install. The app creates that certificate during the first install and keeps it on your phone.
 
+- You can create it ahead of time with **Sign in with Samsung** on the certificate card (the TV must be connected), or let the first install do it.
 - A backup (`nuvio-tizen-certificates.zip`) is saved to your phone's **Downloads** folder automatically when the certificate is created.
 - Keep that file. If you lose the certificate, you must uninstall Nuvio from the TV before you can install it again.
 - Already installed Nuvio with the desktop installer? Import its certificate file (`samsung-tv-certificate-….json`) with **Import** in the app.

@@ -476,6 +476,14 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         Outcome(OutcomeKind.SUCCESS, "Launched", "Nuvio TV is opening on the TV.")
     }
 
+    /** Samsung sign-in that creates this TV's certificate now, before any install. */
+    fun createCertificate() = run("Samsung sign-in") {
+        val created = installer().ensureCertificate(tvIp)
+        if (!created) return@run Outcome(OutcomeKind.SUCCESS, "Certificate already saved", "This TV's certificate is already on this phone. No sign-in needed.")
+        val backupNote = autoBackup()
+        Outcome(OutcomeKind.SUCCESS, "Certificate created", "Your TV's certificate is saved on this phone. Installs and updates won't ask you to sign in again.$backupNote")
+    }
+
     fun uninstall() = run("Uninstall") {
         installer().uninstall(tvIp)
         refreshTvQuietly()

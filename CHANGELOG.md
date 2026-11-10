@@ -10,6 +10,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New setup step, "Sign in with Samsung", explaining in plain words why the TV needs a certificate and what happens during the first install. Users of the desktop installer can import their certificate there.
 - Live activity during an install, in plain words, with "Show details" for the technical log.
 - App version shown at the bottom of the main screen.
+- **Sign in with Samsung** button on the certificate card: create your TV's certificate before installing.
 
 ### Changed
 - "How to fix it" is now a short reason plus numbered steps, with IP addresses highlighted.

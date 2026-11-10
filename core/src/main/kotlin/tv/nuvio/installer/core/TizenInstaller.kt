@@ -152,14 +152,7 @@ class TizenInstaller(
             }
             if (candidates.isEmpty()) {
                 val installed = runCatching { findApp(client, NUVIO_IDS + metadata.packageId + metadata.appId) }.getOrNull()
-                if (installed != null) {
-                    throw MissingIdentityException(
-                        "Nuvio TV ${installed["app_version"].orEmpty()} is already installed on this TV, signed with a certificate " +
-                            "that is not on this phone. A new certificate cannot update it.\n\n" +
-                            "Either import the certificate file from the desktop Nuvio TV Installer, " +
-                            "or uninstall Nuvio from the TV first (then install again)."
-                    )
-                }
+                if (installed != null) throw missingIdentity(installed)
                 candidates = listOf(createIdentity(duid))
             } else {
                 events.info(if (candidates.size == 1) "Using the saved certificate for this TV." else "Found ${candidates.size} saved certificates for this TV.")
@@ -198,6 +191,32 @@ class TizenInstaller(
             }
             throw lastError ?: InstallerException("Installation failed.")
         }
+    }
+
+    private fun missingIdentity(installed: Map<String, String>) = MissingIdentityException(
+        "Nuvio TV ${installed["app_version"].orEmpty()} is already installed on this TV, signed with a certificate " +
+            "that is not on this phone. A new certificate cannot update it.\n\n" +
+            "Either import the certificate file from the desktop Nuvio TV Installer, " +
+            "or uninstall Nuvio from the TV first (then install again)."
+    )
+
+    /**
+     * Creates the signing certificate for the TV at [ip] without installing anything: reads the
+     * TV's DUID, then runs the Samsung sign-in. Returns false when a usable one is already saved.
+     * Refuses when Nuvio is already on the TV under a certificate this device does not have,
+     * because a new certificate could never update that install.
+     */
+    fun ensureCertificate(ip: String): Boolean {
+        val (duid, installed) = connect(ip).use { client ->
+            readDuid(client) to runCatching { findApp(client, NUVIO_IDS) }.getOrNull()
+        }
+        if (identities.candidatesFor(duid).any { it.hasValidAuthorChain() }) {
+            events.success("A certificate for this TV is already saved on this device.")
+            return false
+        }
+        if (installed != null) throw missingIdentity(installed)
+        createIdentity(duid)
+        return true
     }
 
     private fun createIdentity(duid: String): SigningIdentity {

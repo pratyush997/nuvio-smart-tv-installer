@@ -188,6 +188,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     enabled = !busy,
                     onImport = { importCert.launch(arrayOf("*/*")) },
                     onBackup = { exportCert.launch(BACKUP_FILE_NAME) },
+                    onSignIn = vm::createCertificate,
                 )
                 LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
                 Text(
@@ -768,24 +769,43 @@ private fun Collapsible(
 }
 
 @Composable
-private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: () -> Unit, onBackup: () -> Unit) {
+private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: () -> Unit, onBackup: () -> Unit, onSignIn: () -> Unit) {
+    val connected = vm.tvState == TvState.ONLINE
     Panel {
         SectionTitle("Signing certificate")
         val (color, text) = when {
             vm.hasIdentityForTv -> Palette.Success to "Saved for this TV"
-            vm.identityCount > 0 -> Palette.Muted to "${vm.identityCount} saved · not checked against this TV"
-            else -> Palette.Faint to "None yet · created on first install"
+            vm.identityCount > 0 && !connected -> Palette.Muted to "${vm.identityCount} saved · connect to your TV to check it"
+            else -> Palette.Faint to "Not created yet"
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusDot(color)
             Spacer(Modifier.width(10.dp))
             Text(text, color = Palette.Text, fontSize = 14.sp)
         }
-        Text(
-            "Updates must use the same certificate as the first install. A backup is saved automatically when the certificate is created. " +
-                "Import the .json from the desktop installer if you used it before.",
-            color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
-        )
+        if (vm.hasIdentityForTv) {
+            Text(
+                "Installs and updates use this certificate, so no sign-in is needed. Keep the backup: without it, the TV refuses updates.",
+                color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        } else {
+            Text(
+                "Samsung TVs only run apps signed for that TV. Sign in with your Samsung account once and Samsung creates the certificate. " +
+                    "(If you skip this, the sign-in happens during the first install.)",
+                color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+            GradientButton("Sign in with Samsung", enabled = enabled && connected, onClick = onSignIn)
+            if (!connected) {
+                Text(
+                    "Connect to your TV above first: the certificate is made for that TV.",
+                    color = Palette.Faint, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
+            Text(
+                "Used the desktop Nuvio installer before? Import its certificate (.json) instead, so updates keep working.",
+                color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        }
         vm.lastBackup?.let { Text("Last backup: $it", color = Palette.Faint, fontSize = 12.sp, lineHeight = 17.sp) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Import", null, enabled = enabled, onClick = onImport, modifier = Modifier.weight(1f))
