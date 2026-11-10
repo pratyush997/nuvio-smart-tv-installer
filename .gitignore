@@ -17,3 +17,6 @@ keystore.properties
 cli-data/
 samsung-tv-certificate-*.json
 nuvio-tizen-certificates*.zip
+
+# Personal release notes (contain local paths)
+deploy-steps.md

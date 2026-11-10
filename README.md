@@ -1,5 +1,8 @@
 # Nuvio TV Installer for Samsung TVs (Android)
 
+[![Latest release](https://img.shields.io/github/v/release/pratyush997/nuvio-smart-tv-installer)](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest)
+[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+
 An Android app that installs and updates [Nuvio TV](https://github.com/NuvioMedia/NuvioTVSmart) on a Samsung Tizen TV straight from your phone. No PC, no Tizen Studio.
 
 It does the same job as the Samsung part of the desktop [Nuvio TV Installer](https://github.com/NuvioMedia/NuvioTVSmart-Installer), on Android.
@@ -10,7 +13,7 @@ It does the same job as the Samsung part of the desktop [Nuvio TV Installer](htt
 
 ## Download
 
-Get the APK from the [Releases page](../../releases) and open it on your phone. Android asks you to allow installing apps from your browser or file manager the first time.
+Get the APK from the [latest release](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest) and open it on your phone. Android asks you to allow installing apps from your browser or file manager the first time.
 
 Requires Android 8.0 or newer.
 
@@ -120,14 +123,22 @@ The TV only accepts connections from its Host PC IP, so set that to your compute
 
 ## Contributing
 
-Issues and pull requests are welcome. For a bug, include the activity log and your TV model and year. Run `./gradlew :core:test` before opening a pull request.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, as described in [SECURITY.md](SECURITY.md).
+
+Changes in each version are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
 
-- [NuvioMedia](https://github.com/NuvioMedia) for Nuvio TV and the desktop installer whose Samsung flow this app follows.
-- The Nuvio name and logo belong to NuvioMedia.
-- Samsung, Tizen and Galaxy are trademarks of Samsung Electronics.
+- [NuvioMedia](https://github.com/NuvioMedia) for Nuvio TV and the desktop [Nuvio TV Installer](https://github.com/NuvioMedia/NuvioTVSmart-Installer). The Samsung install flow in `core` (SDB commands, certificate requests, package signing) is a Kotlin port of that installer, which is published under the GPL-3.0.
+- The Nuvio name and logo belong to NuvioMedia and are used to say which app this installs. This project is not affiliated with or endorsed by NuvioMedia.
+- Samsung and Tizen are trademarks of Samsung Electronics. LG and webOS are trademarks of LG Electronics.
 
 ## License
 
-[GNU General Public License v3.0](LICENSE)
+Copyright (C) 2026 pratyush997 and contributors.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License, version 3](LICENSE) (`GPL-3.0-only`), as published by the Free Software Foundation.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+Third-party libraries keep their own licences: AndroidX, Jetpack Compose and kotlinx (Apache-2.0), Bouncy Castle (MIT-style Bouncy Castle Licence). All are compatible with GPL-3.0.

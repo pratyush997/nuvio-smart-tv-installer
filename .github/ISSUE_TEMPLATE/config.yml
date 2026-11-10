@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem
+    url: https://github.com/pratyush997/nuvio-smart-tv-installer/security/advisories/new
+    about: Report security issues privately, not as a public issue.
+  - name: Problems with Nuvio itself (not the installer)
+    url: https://github.com/NuvioMedia/NuvioTVSmart/issues
+    about: Bugs inside the Nuvio TV app belong to the Nuvio project.

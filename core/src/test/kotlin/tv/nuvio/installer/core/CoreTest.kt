@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 pratyush997 and contributors
+
 package tv.nuvio.installer.core
 
 import org.bouncycastle.asn1.x500.X500Name

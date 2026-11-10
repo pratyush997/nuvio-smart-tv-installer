@@ -1,0 +1,25 @@
+# Changelog
+
+All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
+
+## [1.1.0] - 2026-11-10
+
+### Added
+- Setup guide in the app: five short screens from Developer Mode to the first install. Opens on first launch and from **Setup guide** later.
+- Address checks: the app checks the phone's IP, the TV's IP, Developer Mode and Host PC IP, and shows what to fix.
+- Automatic certificate backup to the phone's Downloads folder when a certificate is created.
+- Notification when a new Nuvio version is out. Tapping it updates the TV.
+- "LG TV · coming soon" label.
+
+### Changed
+- Restart instructions now say to unplug the TV, wait 5 seconds and plug it back in.
+- The TV IP field starts empty instead of using a fixed address.
+
+## [1.0.0] - 2026-11-09
+
+### Added
+- First version: install, update, launch and uninstall Nuvio TV on a Samsung Tizen TV from an Android phone.
+- Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
+- Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
+
+[1.1.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.1.0

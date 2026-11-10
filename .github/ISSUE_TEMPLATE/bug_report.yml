@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work when installing or updating Nuvio on the TV
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Never paste your certificate file here: it contains private keys.
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: "1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: "Pixel 8, Android 16"
+    validations:
+      required: true
+  - type: input
+    id: tv
+    attributes:
+      label: TV model and year
+      description: "On the TV: Settings › Support › About This TV"
+      placeholder: "QA55Q60 (2023)"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you tapped, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Activity log
+      description: In the app, open **Activity log** and tap **Copy**. Remove anything you consider private.
+      render: text
