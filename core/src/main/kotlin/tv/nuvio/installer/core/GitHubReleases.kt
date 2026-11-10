@@ -24,14 +24,25 @@ data class Release(
     val draft: Boolean = false,
     val prerelease: Boolean = false,
     val published_at: String? = null,
+    val html_url: String = "",
     val assets: List<ReleaseAsset> = emptyList(),
 ) {
     val wgtAsset: ReleaseAsset? get() = assets.firstOrNull { it.name.endsWith(".wgt", ignoreCase = true) }
+    val apkAsset: ReleaseAsset? get() = assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
     val label: String get() = (name?.takeIf { it.isNotBlank() } ?: tag_name) + if (prerelease) " (pre-release)" else ""
 }
 
-/** Reads Nuvio TV releases from GitHub. */
+/** Reads releases from GitHub: Nuvio TV's by default, or another [repo] (such as this installer's own). */
 class GitHubReleases(private val repo: String = "NuvioMedia/NuvioTVSmart") {
+    /** The newest published, non-pre-release release; null when the repo has none. */
+    fun latest(): Release? = try {
+        json.decodeFromString<Release>(
+            Http.getText("https://api.github.com/repos/$repo/releases/latest", mapOf("Accept" to "application/vnd.github+json"))
+        ).takeIf { !it.draft && !it.prerelease }
+    } catch (e: InstallerException) {
+        if (e.message.orEmpty().contains("HTTP 404")) null else throw e
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
 
     /** Recent non-draft releases that contain a Samsung .wgt asset, newest first. */

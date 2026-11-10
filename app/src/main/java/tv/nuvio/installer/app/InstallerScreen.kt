@@ -76,9 +76,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -144,9 +149,14 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
     }
 
     if (vm.showGuide) {
-        SetupGuide(vm, copy)
+        SetupGuide(vm, copy, onImport = { importCert.launch(arrayOf("*/*")) })
         return
     }
+
+    // Progress and results go to the top of the screen, and the screen scrolls there, so they are never out of sight.
+    val mainScroll = rememberScrollState()
+    val installing = vm.busy != null && vm.busy != "Checking TV"
+    LaunchedEffect(installing, vm.outcome) { if (installing || vm.outcome != null) mainScroll.animateScrollTo(0) }
 
     // Mobile-first: one column sized for phones; on larger screens the same column is centred.
     Column(Modifier.fillMaxSize().background(Palette.Background)) {
@@ -155,22 +165,24 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                 Modifier
                     .widthIn(max = MaxContentWidth)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(mainScroll)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Header(onGuide = vm::openGuide)
-                TvCard(vm, onPickFile = { pickWgt.launch(arrayOf("*/*")) })
-                if (vm.busy != null && vm.busy != "Checking TV") ProgressCard(vm)
+                vm.appUpdate?.let { update -> AppUpdateBanner(update, onDismiss = vm::dismissAppUpdate) }
+                if (installing) ProgressCard(vm)
                 vm.outcome?.let { outcome ->
                     OutcomeCard(
                         outcome = outcome,
+                        fixBelow = outcome.kind == OutcomeKind.ERROR && vm.ipReport?.fix != null,
                         onDismiss = vm::dismissOutcome,
                         onShowLog = { logOpen = true },
                         onImport = { importCert.launch(arrayOf("*/*")) },
                         onUninstall = vm::uninstall,
                     )
                 }
+                TvCard(vm, onPickFile = { pickWgt.launch(arrayOf("*/*")) })
                 CertificateCard(
                     vm,
                     enabled = !busy,
@@ -178,6 +190,10 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     onBackup = { exportCert.launch(BACKUP_FILE_NAME) },
                 )
                 LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
+                Text(
+                    "TV Installer ${BuildConfig.VERSION_NAME}",
+                    color = Palette.Faint, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -458,13 +474,69 @@ internal fun IpReportView(report: IpReport) {
         }
         report.fix?.let { fix ->
             Column(
-                Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(12.dp)).background(Palette.Warning.copy(alpha = 0.1f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(14.dp))
+                    .background(Palette.Warning.copy(alpha = 0.08f))
+                    .border(1.dp, Palette.Warning.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("Fix", color = Palette.Warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Text(fix, color = Palette.Text, fontSize = 13.sp, lineHeight = 18.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Warning, contentDescription = null, tint = Palette.Warning, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("How to fix it", color = Palette.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                fix.reason?.let { Text(highlightIps(it), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp) }
+                fix.steps.forEachIndexed { index, step ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Box(
+                            Modifier.size(22.dp).clip(CircleShape).background(Palette.Warning.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("${index + 1}", color = Palette.Warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text(highlightIps(step), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 1.dp))
+                    }
+                }
             }
+        }
+    }
+}
+
+private val Ipv4 = Regex("""\b\d{1,3}(?:\.\d{1,3}){3}\b""")
+
+/** Makes IP addresses stand out, since they are what the user has to read or type. */
+internal fun highlightIps(text: String): AnnotatedString = buildAnnotatedString {
+    var last = 0
+    for (match in Ipv4.findAll(text)) {
+        append(text.substring(last, match.range.first))
+        withStyle(SpanStyle(color = Palette.Link, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)) { append(match.value) }
+        last = match.range.last + 1
+    }
+    append(text.substring(last))
+}
+
+/** "A new version of this app is out", with a direct APK download. */
+@Composable
+private fun AppUpdateBanner(update: AppUpdate, onDismiss: () -> Unit) {
+    val uri = LocalUriHandler.current
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.Accent.copy(alpha = 0.1f))
+            .border(1.dp, Palette.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp)).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("TV Installer ${update.version} is available", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("You have ${BuildConfig.VERSION_NAME}. Download it, then open the file to update.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Palette.Muted, modifier = Modifier.size(18.dp))
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SoftButton("Download", null, enabled = true, onClick = { uri.openUri(update.downloadUrl) }, modifier = Modifier.weight(1f), tint = Palette.Link)
+            SoftButton("What's new", null, enabled = true, onClick = { uri.openUri(update.pageUrl) }, modifier = Modifier.weight(1f), tint = Palette.Muted)
         }
     }
 }
@@ -505,7 +577,7 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
 @Composable
 private fun ProgressCard(vm: InstallerViewModel) {
     Panel {
-        SectionTitle(vm.busy.orEmpty() + "…")
+        SectionTitle(if (vm.busy == "Install") "Installing Nuvio…" else vm.busy.orEmpty() + "…")
         if (vm.busy == "Install") {
             val current = vm.stage
             InstallStage.entries.forEach { step ->
@@ -520,6 +592,7 @@ private fun ProgressCard(vm: InstallerViewModel) {
         } else {
             LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Accent, trackColor = Palette.SurfaceHigh)
         }
+        LiveActivity(vm)
         AnimatedVisibility(vm.waitingForLogin) {
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.SurfaceHigh).padding(14.dp),
@@ -535,6 +608,51 @@ private fun ProgressCard(vm: InstallerViewModel) {
                     color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
                 )
                 TextButton(onClick = vm::reopenLogin) { Text("Open login again", color = Palette.Link) }
+            }
+        }
+    }
+}
+
+/**
+ * What the installer is doing right now, in plain words, newest at the bottom. "Show details"
+ * adds the raw TV commands and replies.
+ */
+@Composable
+private fun LiveActivity(vm: InstallerViewModel) {
+    var details by rememberSaveable { mutableStateOf(false) }
+    val start = vm.log.indexOfLast { it.text.startsWith("── ") }.coerceAtLeast(0)
+    val lines = vm.log.drop(start + 1).filter { details || (it.level != LogLevel.COMMAND && it.level != LogLevel.OUTPUT) }
+    if (lines.isEmpty()) return
+    val scroll = rememberScrollState()
+    LaunchedEffect(lines.size, details) { scroll.animateScrollTo(scroll.maxValue) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Activity", color = Palette.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { details = !details }) {
+                Text(if (details) "Hide details" else "Show details", color = Palette.Link, fontSize = 13.sp)
+            }
+        }
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = if (details) 260.dp else 150.dp).clip(RoundedCornerShape(12.dp))
+                .background(Palette.Background).verticalScroll(scroll).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            lines.forEach { line ->
+                val (mark, color) = when (line.level) {
+                    LogLevel.SUCCESS -> "✓" to Palette.Success
+                    LogLevel.ERROR -> "✕" to Palette.Error
+                    LogLevel.COMMAND -> "›" to Palette.Blue
+                    LogLevel.OUTPUT -> " " to Palette.Faint
+                    LogLevel.INFO -> "•" to Palette.Muted
+                }
+                Row {
+                    Text(mark, color = color, fontSize = 12.sp, modifier = Modifier.width(16.dp))
+                    Text(
+                        line.text, color = if (line.level == LogLevel.OUTPUT) Palette.Faint else Palette.Text,
+                        fontSize = if (details) 11.sp else 13.sp, lineHeight = if (details) 15.sp else 18.sp,
+                        fontFamily = if (details) FontFamily.Monospace else FontFamily.Default,
+                    )
+                }
             }
         }
     }
@@ -582,7 +700,7 @@ private fun StepRow(title: String, state: Int, detail: String, progress: Float?)
 // ---------------------------------------------------------------- outcome
 
 @Composable
-private fun OutcomeCard(outcome: Outcome, onDismiss: () -> Unit, onShowLog: () -> Unit, onImport: () -> Unit, onUninstall: () -> Unit) {
+private fun OutcomeCard(outcome: Outcome, fixBelow: Boolean, onDismiss: () -> Unit, onShowLog: () -> Unit, onImport: () -> Unit, onUninstall: () -> Unit) {
     val (color, icon) = when (outcome.kind) {
         OutcomeKind.SUCCESS -> Palette.Success to Icons.Filled.Check
         OutcomeKind.ERROR -> Palette.Error to Icons.Filled.Close
@@ -608,6 +726,9 @@ private fun OutcomeCard(outcome: Outcome, onDismiss: () -> Unit, onShowLog: () -
             }
         }
         Text(outcome.message, color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp)
+        if (fixBelow) {
+            Text("Follow the steps under \"How to fix it\" below, then try again.", color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+        }
         when (outcome.kind) {
             OutcomeKind.NEEDS_CERTIFICATE -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SoftButton("Import certificate", null, enabled = true, onClick = onImport, modifier = Modifier.weight(1f), tint = Palette.Warning)

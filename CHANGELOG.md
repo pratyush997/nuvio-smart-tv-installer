@@ -2,7 +2,18 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.0] - 2026-11-10
+
+### Added
+- The app tells you when a new version of **TV Installer** itself is out: a banner in the app and a notification, with a direct download.
+- Setup guide starts by asking which TV you have (Samsung, or LG: coming soon).
+- New setup step, "Sign in with Samsung", explaining in plain words why the TV needs a certificate and what happens during the first install. Users of the desktop installer can import their certificate there.
+- Live activity during an install, in plain words, with "Show details" for the technical log.
+- App version shown at the bottom of the main screen.
+
+### Changed
+- "How to fix it" is now a short reason plus numbered steps, with IP addresses highlighted.
+- Install progress and results now appear at the top of the screen instead of below the TV card.
 
 ### Fixed
 - TV names with quotes showed as `65&quot; Crystal UHD`.
@@ -38,5 +49,6 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.3.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.0
 [1.2.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.2.0
 [1.1.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.1.0

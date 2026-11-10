@@ -65,6 +65,10 @@ class CoreTest {
         assertEquals("1.3.9", apps[0]["app_version"])
         assertEquals(-1, TizenInstaller.compareVersions("1.3.9", "1.3.10"))
         assertEquals(1, TizenInstaller.compareVersions("6.5", "2.3"))
+        assertEquals(1, TizenInstaller.compareVersions("1.3.0", "v1.2.0"))
+        assertEquals(0, TizenInstaller.compareVersions("v1.3.11", "1.3.11"))
+        assertEquals(-1, TizenInstaller.compareVersions("1.2.0", "v1.3.0"))
+        assertEquals(listOf(1, 3, 11), TizenInstaller.parseVersion("Nuvio TV v1.3.11 (pre-release)"))
         assertTrue(TizenInstaller.isCertificateRejection("install failed[118012]") && TizenInstaller.isCertificateRejection("install failed[118, -12]"))
         assertTrue(TizenInstaller.isPlatformIncompatibility("install failed[118019]"))
     }
@@ -87,17 +91,17 @@ class CoreTest {
         fun fix(phone: String?, tv: String, s: SamsungTvStatus?, connected: Boolean = false, lastGood: String? = null) =
             TvNetwork.report(phone, 24, tv, s, connected, "boom", lastGood)
         assertNull(fix("192.168.1.11", "192.168.1.9", status, connected = true).fix)
-        assertTrue(fix("192.168.1.14", "192.168.1.9", status).fix!!.contains("change Host PC IP to 192.168.1.14"))
-        assertTrue(fix("192.168.1.11", "192.168.1.9", status).fix!!.contains("has not applied them"))
-        assertTrue(fix("192.168.1.11", "192.168.1.9", status!!.copy(developerMode = false)).fix!!.contains("switch Developer Mode on"))
+        assertTrue(fix("192.168.1.14", "192.168.1.9", status).fix!!.text.contains("Change Host PC IP from 192.168.1.11 to 192.168.1.14."))
+        assertTrue(fix("192.168.1.11", "192.168.1.9", status).fix!!.reason!!.contains("has not applied them"))
+        assertTrue(fix("192.168.1.11", "192.168.1.9", status!!.copy(developerMode = false)).fix!!.steps.contains("Switch Developer Mode on."))
         assertTrue(fix("192.168.1.11", "192.168.2.9", null).rows.last().text.contains("different network"))
         assertTrue(fix("192.168.1.11", "192.168.1.9", null).rows.last().text.contains("No Samsung TV answered"))
         assertTrue(fix("192.168.1.11", "192.168.1.11", null).rows.last().text.contains("this phone's IP"))
         assertTrue(fix("192.168.1.11", "abc", null).rows.last().text.contains("not a valid address"))
-        assertTrue(fix(null, "192.168.1.9", null).fix!!.contains("same Wi-Fi"))
+        assertTrue(fix(null, "192.168.1.9", null).fix!!.text.contains("same Wi-Fi"))
         val unknown = SamsungTvStatus("TV", "", null, null)
-        assertTrue(fix("192.168.1.14", "192.168.1.9", unknown, lastGood = "192.168.1.11").fix!!.contains("changed from 192.168.1.11 to 192.168.1.14"))
-        assertTrue(fix("192.168.1.14", "192.168.1.9", unknown).fix!!.startsWith("boom"))
+        assertTrue(fix("192.168.1.14", "192.168.1.9", unknown, lastGood = "192.168.1.11").fix!!.reason!!.contains("changed from 192.168.1.11 to 192.168.1.14"))
+        assertTrue(fix("192.168.1.14", "192.168.1.9", unknown).fix!!.reason == "boom")
 
         // Real response shape from a 2023 Crystal UHD: the name is HTML-escaped.
         val crystal = TvNetwork.parseStatus("""{"device":{"name":"65&quot; Crystal UHD","modelName":"UA65CUE70AKLXL","developerMode":"1","developerIP":"192.168.1.8"}}""")
@@ -107,7 +111,8 @@ class CoreTest {
         // Emulators: never tell the user to type the emulator's 10.0.2.x address on the TV.
         assertTrue(TvNetwork.isEmulatorAddress("10.0.2.15") && !TvNetwork.isEmulatorAddress("10.0.20.15"))
         val emu = fix("10.0.2.15", "192.168.1.9", crystal)
-        assertTrue(emu.fix!!.contains("computer's Wi-Fi IP") && emu.fix!!.contains("instead of 192.168.1.8 (run ipconfig"))
+        assertTrue(emu.fix!!.steps.contains("Change Host PC IP from 192.168.1.8 to your computer's Wi-Fi IP. Run ipconfig on the PC to find it."))
+        assertEquals("1. On the TV, open Apps and press 1 2 3 4 5 on the remote.", emu.fix!!.text.lines()[1])
         assertTrue(emu.rows.none { it.state == CheckState.FAIL && it.text.contains("Host PC IP") })
         assertTrue(!fix("10.0.2.15", "192.168.1.9", null).rows.last().text.contains("different network"))
     }

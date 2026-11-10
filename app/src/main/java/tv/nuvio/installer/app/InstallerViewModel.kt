@@ -74,6 +74,8 @@ const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 const val BACKUP_FILE_NAME = "nuvio-tizen-certificates.zip"
+const val PREF_APP_NOTIFIED_TAG = "appNotifiedTag"
+private const val PREF_APP_DISMISSED_TAG = "appDismissedTag"
 
 class InstallerViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -99,6 +101,9 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     var lastBackup by mutableStateOf(prefs.getString("lastBackup", null))
         private set
     private var pendingUpdate = false
+    /** A newer version of this app on GitHub, or null. */
+    var appUpdate by mutableStateOf<AppUpdate?>(null)
+        private set
     var releases by mutableStateOf<List<Release>>(emptyList())
         private set
     var releasesError by mutableStateOf<String?>(null)
@@ -138,7 +143,20 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         refreshIdentities()
         showGuide = !prefs.getBoolean("setupDone", false) && identityCount == 0
         loadReleases()
+        checkAppUpdate()
         if (tvIp.isNotBlank()) checkTv()
+    }
+
+    private fun checkAppUpdate() {
+        viewModelScope.launch {
+            val update = withContext(Dispatchers.IO) { UpdateCheck.newerApp() } ?: return@launch
+            if (prefs.getString(PREF_APP_DISMISSED_TAG, null) != update.tag) appUpdate = update
+        }
+    }
+
+    fun dismissAppUpdate() {
+        appUpdate?.let { prefs.edit().putString(PREF_APP_DISMISSED_TAG, it.tag).apply() }
+        appUpdate = null
     }
 
     val installedVersion: String?
@@ -322,9 +340,9 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                     rememberInstalledVersion(check.info)
                 } else {
                     tvState = TvState.OFFLINE
-                    tvError = report.fix ?: check.error
+                    tvError = report.fix?.text ?: check.error
                     log.add(LogLine(LogLevel.ERROR, report.rows.lastOrNull()?.text.orEmpty()))
-                    report.fix?.let { log.add(LogLine(LogLevel.INFO, it)) }
+                    report.fix?.let { log.add(LogLine(LogLevel.INFO, it.text)) }
                 }
             } finally {
                 busy = null

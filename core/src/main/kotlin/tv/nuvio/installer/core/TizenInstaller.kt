@@ -41,7 +41,8 @@ class TizenInstaller(
             Regex("install failed\\s*\\[\\s*(?:118019|118\\s*,\\s*-?19)\\s*]", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
         fun parseVersion(value: String): List<Int>? {
-            val m = Regex("\\b(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?\\b").find(value) ?: return null
+            // Not \b: in "v1.2.0" there is no word boundary between "v" and "1".
+            val m = Regex("(?<![\\d.])(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?").find(value) ?: return null
             return listOf(m.groupValues[1].toInt(), m.groupValues[2].ifEmpty { "0" }.toInt(), m.groupValues[3].ifEmpty { "0" }.toInt())
         }
 

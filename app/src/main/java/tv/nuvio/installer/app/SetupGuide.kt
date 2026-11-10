@@ -5,6 +5,7 @@ package tv.nuvio.installer.app
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,27 +35,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private const val GUIDE_STEPS = 5
+private const val GUIDE_STEPS = 6
+
+private enum class TvBrand { SAMSUNG, LG }
 
 /**
- * First-time setup, one step per screen: what you need, Developer Mode, power-cycle, TV address, install.
+ * First-time setup, one step per screen: which TV, what you need, Developer Mode, restart,
+ * connect, then the Samsung sign-in that creates the TV's certificate and the install itself.
  * Shown on first launch and reachable later from "Setup guide" on the main screen.
  */
 @Composable
-fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit) {
+fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> Unit) {
     var step by rememberSaveable { mutableIntStateOf(0) }
+    var brand by rememberSaveable { mutableStateOf<TvBrand?>(null) }
     val busy = vm.busy != null
     val connected = vm.tvState == TvState.ONLINE
     val focus = LocalFocusManager.current
@@ -82,11 +90,12 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 when (step) {
-                    0 -> WelcomeStep(vm)
-                    1 -> DeveloperModeStep(vm, copy)
-                    2 -> PowerCycleStep()
-                    3 -> TvAddressStep(vm)
-                    else -> ReadyStep(vm)
+                    0 -> ChooseTvStep(brand, onChoose = { brand = it })
+                    1 -> NeedsStep(vm)
+                    2 -> DeveloperModeStep(vm, copy)
+                    3 -> PowerCycleStep()
+                    4 -> TvAddressStep(vm)
+                    else -> SamsungAccountStep(vm, onImport)
                 }
             }
         }
@@ -99,10 +108,14 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit) {
                 }
                 val next: () -> Unit = { step++ }
                 when (step) {
-                    0 -> GradientButton("Start", enabled = true, onClick = next, modifier = Modifier.weight(1f))
-                    1 -> GradientButton("Done, next", enabled = true, onClick = next, modifier = Modifier.weight(1f))
-                    2 -> GradientButton("The TV is back on", enabled = true, onClick = next, modifier = Modifier.weight(1f))
-                    3 -> when {
+                    0 -> GradientButton(
+                        if (brand == TvBrand.LG) "LG is coming soon" else "Next",
+                        enabled = brand == TvBrand.SAMSUNG, onClick = next, modifier = Modifier.weight(1f),
+                    )
+                    1 -> GradientButton("I have these", enabled = true, onClick = next, modifier = Modifier.weight(1f))
+                    2 -> GradientButton("Done, next", enabled = true, onClick = next, modifier = Modifier.weight(1f))
+                    3 -> GradientButton("The TV is back on", enabled = true, onClick = next, modifier = Modifier.weight(1f))
+                    4 -> when {
                         connected -> GradientButton("Next", enabled = !busy, onClick = next, modifier = Modifier.weight(1f))
                         busy -> GradientButton("Checking…", enabled = false, onClick = {}, modifier = Modifier.weight(1f))
                         else -> GradientButton(
@@ -124,13 +137,48 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit) {
 // ---------------------------------------------------------------- steps
 
 @Composable
-private fun WelcomeStep(vm: InstallerViewModel) {
-    GuideTitle("Put Nuvio on your Samsung TV", "About 10 minutes, once. After that, updates take one tap.")
+private fun ChooseTvStep(brand: TvBrand?, onChoose: (TvBrand) -> Unit) {
+    GuideTitle("Which TV do you have?", "This app puts Nuvio on your TV. About 10 minutes the first time, then updates take one tap.")
+    BrandOption("Samsung", "Smart TVs with Tizen", selected = brand == TvBrand.SAMSUNG, available = true) { onChoose(TvBrand.SAMSUNG) }
+    BrandOption("LG", "Coming soon", selected = brand == TvBrand.LG, available = false) { onChoose(TvBrand.LG) }
+    if (brand == TvBrand.LG) {
+        Note("LG TVs are not supported yet. Support is planned; the next versions of this app will add it.")
+    }
+}
+
+@Composable
+private fun BrandOption(name: String, detail: String, selected: Boolean, available: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) Palette.Accent.copy(alpha = 0.12f) else Palette.Surface)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Accent else Palette.Outline, RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(name, color = if (available) Palette.Text else Palette.Muted, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(detail, color = Palette.Muted, fontSize = 14.sp)
+        }
+        Box(
+            Modifier.size(26.dp).clip(CircleShape)
+                .background(if (selected) Palette.Accent else Palette.SurfaceHigh),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.Background, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun NeedsStep(vm: InstallerViewModel) {
+    GuideTitle("What you need", "Get these ready before you start.")
     Panel {
-        SectionTitle("You need")
-        Bullet("A Samsung smart TV and its remote")
+        Bullet("Your Samsung TV and its remote")
         Bullet("This phone and the TV on the same Wi-Fi")
-        Bullet("A Samsung account (free). You sign in once.")
+        Bullet("A Samsung account (free). You sign in once, near the end.")
     }
     Panel {
         SectionTitle("This phone")
@@ -143,9 +191,6 @@ private fun WelcomeStep(vm: InstallerViewModel) {
                 color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip("LG TV · coming soon", Palette.Faint)
     }
 }
 
@@ -212,18 +257,45 @@ private fun TvAddressStep(vm: InstallerViewModel) {
 }
 
 @Composable
-private fun ReadyStep(vm: InstallerViewModel) {
+private fun SamsungAccountStep(vm: InstallerViewModel, onImport: () -> Unit) {
+    val uri = LocalUriHandler.current
     val installed = vm.installedVersion
-    GuideTitle(
-        "Your TV is connected",
-        if (installed != null) "Nuvio $installed is on the TV now." else "Setup is done. One tap installs Nuvio.",
-    )
+    if (vm.hasIdentityForTv) {
+        GuideTitle("You're ready", "The certificate for this TV is already saved, so no Samsung sign-in is needed.")
+    } else {
+        GuideTitle(
+            "Sign in with Samsung",
+            "Samsung TVs only run apps that are signed for that exact TV. The app gets that signature for you. You just sign in once.",
+        )
+    }
     Panel {
-        SectionTitle("What happens next")
+        SectionTitle(if (installed != null) "What happens when you tap Update" else "What happens when you tap Install")
         GuideStep(1, "The app downloads Nuvio.")
-        GuideStep(2, "A Samsung sign-in opens in the browser, the first time only. It creates the certificate your TV needs.")
-        GuideStep(3, "Nuvio is installed on the TV. Keep the TV on.")
-        GuideStep(4, "The certificate is backed up to this phone's Downloads folder automatically.")
+        if (vm.hasIdentityForTv) {
+            GuideStep(2, "The app signs Nuvio with your TV's saved certificate.")
+        } else {
+            GuideStep(2, "Your browser opens Samsung's sign-in page. Sign in, then come back to this app.")
+            GuideStep(3, "Samsung creates a certificate just for your TV, and the app signs Nuvio with it.")
+        }
+        GuideStep(if (vm.hasIdentityForTv) 3 else 4, "Nuvio is installed on the TV. You can watch each step as it happens.")
+        if (!vm.hasIdentityForTv) {
+            GuideStep(5, "A backup of the certificate is saved to this phone's Downloads folder. Keep it: updates need it.")
+        }
+    }
+    if (!vm.hasIdentityForTv) {
+        Panel {
+            SectionTitle("No Samsung account?")
+            Text("Any Samsung account works, and it is free. Create one, then come back here.", color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp)
+            SoftButton("Create a Samsung account", null, enabled = true, onClick = { uri.openUri("https://account.samsung.com/") })
+        }
+        Panel {
+            SectionTitle("Used the desktop Nuvio installer before?")
+            Text(
+                "Import the certificate file it saved (samsung-tv-certificate-….json). Without it, the TV refuses updates to the Nuvio it installed.",
+                color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+            SoftButton("Import certificate", null, enabled = vm.busy == null, onClick = onImport)
+        }
     }
     Note("You get a notification when a new Nuvio version is out. Tap it to update the TV.")
 }

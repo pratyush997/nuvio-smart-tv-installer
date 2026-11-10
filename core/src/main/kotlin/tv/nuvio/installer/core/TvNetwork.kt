@@ -22,8 +22,17 @@ enum class CheckState { OK, FAIL, UNKNOWN }
 
 data class CheckRow(val state: CheckState, val text: String)
 
+/**
+ * What to do about a failed check: an optional one-line reason, then steps in order.
+ * [text] is the same as plain text, for logs.
+ */
+data class Fix(val reason: String?, val steps: List<String>) {
+    val text: String
+        get() = (listOfNotNull(reason) + steps.mapIndexed { i, step -> "${i + 1}. $step" }).joinToString("\n")
+}
+
 /** Result of the phone/TV address checks: one row per check, and what to do about the first failure. */
-data class IpReport(val rows: List<CheckRow>, val fix: String?)
+data class IpReport(val rows: List<CheckRow>, val fix: Fix?)
 
 object TvNetwork {
     const val INFO_PORT = 8001
@@ -117,32 +126,43 @@ object TvNetwork {
         lastGoodPhoneIp: String? = null,
     ): IpReport {
         val rows = ArrayList<CheckRow>()
-        var fix: String? = null
-        fun add(state: CheckState, text: String, hint: String? = null) {
+        var fix: Fix? = null
+        fun add(state: CheckState, text: String, hint: Fix? = null) {
             rows += CheckRow(state, text)
             if (state == CheckState.FAIL && fix == null) fix = hint
         }
         // In an emulator the TV sees the computer's address, not the emulator's.
         val emulator = phoneIp != null && isEmulatorAddress(phoneIp)
         val hostIp = when {
-            emulator -> "your computer's Wi-Fi IP (run ipconfig on the PC)"
+            emulator -> "your computer's Wi-Fi IP"
             else -> phoneIp ?: "this phone's IP"
         }
-        val devModeSteps = "On the TV open Apps, press 1 2 3 4 5 on the remote"
+        val findPcIp = "Run ipconfig on the PC to find it."
+        val openDevMode = "On the TV, open Apps and press 1 2 3 4 5 on the remote."
+        val powerCycle = "Unplug the TV from power, wait 5 seconds, then plug it back in."
+        val refresh = "Tap refresh here."
+        val findTvIp = "On the TV, open Settings › General (or Connection) › Network › Network Status › IP Settings."
+        fun setHostIp(from: String?) = buildString {
+            append(if (from != null) "Change Host PC IP from $from to $hostIp." else "Set Host PC IP to $hostIp.")
+            if (emulator) append(" $findPcIp")
+        }
 
         when {
-            phoneIp == null -> add(CheckState.FAIL, "Phone has no Wi-Fi address", "Connect this phone to the same Wi-Fi as the TV.")
+            phoneIp == null -> add(
+                CheckState.FAIL, "Phone has no Wi-Fi address",
+                Fix(null, listOf("Connect this phone to the same Wi-Fi as the TV.", refresh)),
+            )
             emulator -> add(CheckState.OK, "Emulator IP $phoneIp (the TV sees your computer's IP instead)")
             else -> add(CheckState.OK, "Phone IP $phoneIp")
         }
 
         val tv = tvIp.trim()
         if (!isValidIpv4(tv)) {
-            add(CheckState.FAIL, "TV IP is not a valid address", "Type the TV's IP as four numbers, like 192.168.1.20.")
+            add(CheckState.FAIL, "TV IP is not a valid address", Fix(null, listOf(findTvIp, "Type that IP here: four numbers, like 192.168.1.20.")))
             return IpReport(rows, fix)
         }
         if (tv == phoneIp) {
-            add(CheckState.FAIL, "$tv is this phone's IP, not the TV's", "Type the TV's own IP. On the TV: Settings › General (or Connection) › Network › Network Status › IP Settings.")
+            add(CheckState.FAIL, "$tv is this phone's IP, not the TV's", Fix(null, listOf(findTvIp, "Type the IP shown there.")))
             return IpReport(rows, fix)
         }
 
@@ -159,12 +179,12 @@ object TvNetwork {
             if (phoneIp != null && !emulator && !sameSubnet(phoneIp, tv, prefixLength)) {
                 add(
                     CheckState.FAIL, "TV IP $tv is on a different network than the phone",
-                    "Check the TV IP for a typo. Phone and TV must be on the same Wi-Fi (a guest network will not work).",
+                    Fix(null, listOf("Check the TV IP for a typo. $findTvIp", "Put the phone on the same Wi-Fi as the TV. A guest network will not work.", refresh)),
                 )
             } else {
                 add(
                     CheckState.FAIL, "No Samsung TV answered at $tv",
-                    "Check that the TV is on and the IP is right. On the TV: Settings › General (or Connection) › Network › Network Status › IP Settings.",
+                    Fix(null, listOf("Check that the TV is on.", "Check the IP. $findTvIp", refresh)),
                 )
             }
             return IpReport(rows, fix)
@@ -173,16 +193,16 @@ object TvNetwork {
         val label = listOf(status.name, status.model).filter { it.isNotEmpty() }.joinToString(" · ")
         add(CheckState.OK, if (label.isNotEmpty()) "TV found at $tv: $label" else "TV found at $tv")
 
+        val developerIp = status.developerIp
         when (status.developerMode) {
             true -> add(CheckState.OK, "Developer Mode is on")
             false -> add(
                 CheckState.FAIL, "Developer Mode is off on the TV",
-                "$devModeSteps, switch Developer Mode on and type $hostIp as Host PC IP. Then $POWER_CYCLE.",
+                Fix(null, listOf(openDevMode, "Switch Developer Mode on.", setHostIp(null), powerCycle, refresh)),
             )
             null -> add(CheckState.UNKNOWN, "Developer Mode: the TV did not say")
         }
 
-        val developerIp = status.developerIp
         when {
             status.developerMode == false -> Unit
             developerIp == null -> add(CheckState.UNKNOWN, "Host PC IP: the TV did not say")
@@ -190,7 +210,7 @@ object TvNetwork {
             developerIp == phoneIp -> add(CheckState.OK, "Host PC IP matches this phone")
             else -> add(
                 CheckState.FAIL, "Host PC IP on the TV is $developerIp, but this phone is $hostIp",
-                "$devModeSteps and change Host PC IP to $hostIp. Then $POWER_CYCLE.",
+                Fix(null, listOf(openDevMode, setHostIp(developerIp), powerCycle, refresh)),
             )
         }
 
@@ -199,14 +219,19 @@ object TvNetwork {
         add(
             CheckState.FAIL, "Installer connection failed",
             when {
-                emulator -> "This is an emulator, so the TV sees your computer, not $phoneIp. $devModeSteps and set Host PC IP to " +
-                    "your computer's Wi-Fi IP${developerIp?.let { " instead of $it" }.orEmpty()} (run ipconfig on the PC to find it). Then $POWER_CYCLE."
-                settingsLookRight -> "The settings are right, but the TV has not applied them yet: $POWER_CYCLE."
-                phoneMoved -> "This phone's IP changed from $lastGoodPhoneIp to $phoneIp. $devModeSteps and change Host PC IP to $phoneIp. Then $POWER_CYCLE."
-                else -> listOfNotNull(
+                emulator -> Fix(
+                    "This is an emulator, so the TV sees your computer, not $phoneIp.",
+                    listOf(openDevMode, setHostIp(developerIp), powerCycle, refresh),
+                )
+                settingsLookRight -> Fix("The settings are right, but the TV has not applied them yet.", listOf(powerCycle, refresh))
+                phoneMoved -> Fix(
+                    "This phone's IP changed from $lastGoodPhoneIp to $phoneIp.",
+                    listOf(openDevMode, setHostIp(lastGoodPhoneIp), powerCycle, refresh),
+                )
+                else -> Fix(
                     connectError?.takeIf { it.isNotBlank() },
-                    "$devModeSteps, check Developer Mode is on and Host PC IP is $hostIp. Then $POWER_CYCLE.",
-                ).joinToString("\n\n")
+                    listOf(openDevMode, "Check that Developer Mode is on and Host PC IP is $hostIp.", powerCycle, refresh),
+                )
             },
         )
         return IpReport(rows, fix)
