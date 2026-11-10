@@ -1,0 +1,19 @@
+# Build output
+.gradle/
+.kotlin/
+build/
+dist/
+
+# Machine-specific
+local.properties
+*.iml
+.idea/
+
+# Never commit signing keys or TV certificates
+keystore/
+*.jks
+*.keystore
+keystore.properties
+cli-data/
+samsung-tv-certificate-*.json
+nuvio-tizen-certificates*.zip

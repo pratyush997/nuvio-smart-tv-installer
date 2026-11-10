@@ -1,0 +1,705 @@
+package tv.nuvio.installer.app
+
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import tv.nuvio.installer.core.CheckState
+import tv.nuvio.installer.core.InstallStage
+import tv.nuvio.installer.core.IpReport
+import tv.nuvio.installer.core.LogLevel
+
+// ---------------------------------------------------------------- palette
+
+object Palette {
+    val Background = Color(0xFF0A0A0F)
+    val Surface = Color(0xFF14141B)
+    val SurfaceHigh = Color(0xFF1C1C25)
+    val Outline = Color(0xFF2A2A35)
+    val Text = Color(0xFFF4F4F6)
+    val Muted = Color(0xFF9A9AA8)
+    val Faint = Color(0xFF5C5C6A)
+    val Cyan = Color(0xFF22D3EE)
+    val Blue = Color(0xFF3B82F6)
+    val Violet = Color(0xFF8B5CF6)
+    val Success = Color(0xFF34D399)
+    val Error = Color(0xFFF87171)
+    val Warning = Color(0xFFFBBF24)
+    val BrandGradient = Brush.horizontalGradient(listOf(Blue, Violet))
+}
+
+// ---------------------------------------------------------------- screen
+
+@Composable
+fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
+    val busy = vm.busy != null
+    val view = LocalView.current
+    DisposableEffect(busy) {
+        view.keepScreenOn = busy
+        onDispose { view.keepScreenOn = false }
+    }
+
+    val pickWgt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::selectFile) }
+    val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importIdentities) }
+    val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let(vm::exportIdentities)
+    }
+    var logOpen by rememberSaveable { mutableStateOf(false) }
+
+    // The automatic certificate backup could not write to Downloads: open the save dialog instead.
+    LaunchedEffect(vm.backupRequest) {
+        if (vm.backupRequest) {
+            vm.backupRequestHandled()
+            exportCert.launch(BACKUP_FILE_NAME)
+        }
+    }
+    // Once Nuvio is on the TV, ask (once) for permission to announce new versions.
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(vm.installedVersion, vm.busy) {
+        if (vm.busy == null && vm.shouldAskForNotifications()) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    if (vm.showGuide) {
+        SetupGuide(vm, copy)
+        return
+    }
+
+    // Mobile-first: one column sized for phones; on larger screens the same column is centred.
+    Column(Modifier.fillMaxSize().background(Palette.Background)) {
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier
+                    .widthIn(max = MaxContentWidth)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Header(onGuide = vm::openGuide)
+                TvCard(vm, onPickFile = { pickWgt.launch(arrayOf("*/*")) })
+                if (vm.busy != null && vm.busy != "Checking TV") ProgressCard(vm)
+                vm.outcome?.let { outcome ->
+                    OutcomeCard(
+                        outcome = outcome,
+                        onDismiss = vm::dismissOutcome,
+                        onShowLog = { logOpen = true },
+                        onImport = { importCert.launch(arrayOf("*/*")) },
+                        onUninstall = vm::uninstall,
+                    )
+                }
+                CertificateCard(
+                    vm,
+                    enabled = !busy,
+                    onImport = { importCert.launch(arrayOf("*/*")) },
+                    onBackup = { exportCert.launch(BACKUP_FILE_NAME) },
+                )
+                LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        BottomBar(vm)
+    }
+}
+
+internal val MaxContentWidth = 560.dp
+
+/** Primary action pinned to the bottom, within thumb reach. */
+@Composable
+private fun BottomBar(vm: InstallerViewModel) {
+    val busy = vm.busy != null
+    val installing = vm.busy == "Install"
+    HorizontalDivider(color = Palette.Outline)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Palette.Background)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Column(Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (installing) {
+                val stage = vm.stage
+                val step = (stage?.ordinal ?: 0) + 1
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (vm.waitingForLogin) "Waiting for Samsung login…" else "Step $step of ${InstallStage.entries.size} · ${(stage ?: InstallStage.PACKAGE).title}",
+                        color = Palette.Text, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                    )
+                    vm.progress?.let { Text("${(it * 100).toInt()}%", color = Palette.Muted, fontSize = 13.sp) }
+                }
+                val fraction = ((step - 1) + (vm.progress ?: 0.5f)) / InstallStage.entries.size
+                LinearProgressIndicator(
+                    progress = { fraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                    color = Palette.Violet,
+                    trackColor = Palette.SurfaceHigh,
+                )
+            }
+            GradientButton(
+                text = when {
+                    installing -> "Installing…"
+                    busy -> "${vm.busy}…"
+                    else -> vm.primaryLabel
+                },
+                enabled = !busy && vm.source != null && vm.tvIp.isNotBlank(),
+                onClick = vm::install,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Header(onGuide: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.nuvio_wordmark), contentDescription = "Nuvio", modifier = Modifier.height(26.dp))
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onGuide) { Text("Setup guide", color = Palette.Cyan) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("for Samsung TV", Palette.Muted)
+            Chip("LG TV · coming soon", Palette.Faint)
+        }
+    }
+}
+
+@Composable
+internal fun Chip(text: String, color: Color) {
+    Box(Modifier.clip(RoundedCornerShape(50)).background(Palette.SurfaceHigh).padding(horizontal = 10.dp, vertical = 4.dp)) {
+        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+// ---------------------------------------------------------------- building blocks
+
+@Composable
+internal fun Panel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Palette.Surface)
+            .border(1.dp, Palette.Outline, RoundedCornerShape(20.dp))
+            .padding(18.dp)
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = content,
+    )
+}
+
+@Composable
+internal fun SectionTitle(text: String, trailing: @Composable () -> Unit = {}) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(text, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        trailing()
+    }
+}
+
+@Composable
+internal fun StatusDot(color: Color, pulsing: Boolean = false) {
+    val alpha = if (pulsing) {
+        val transition = rememberInfiniteTransition(label = "dot")
+        transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "alpha").value
+    } else 1f
+    Box(Modifier.size(9.dp).alpha(alpha).clip(CircleShape).background(color))
+}
+
+@Composable
+internal fun GradientButton(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (enabled) Palette.BrandGradient else Brush.horizontalGradient(listOf(Palette.SurfaceHigh, Palette.SurfaceHigh)))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = if (enabled) Color.White else Palette.Faint, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+internal fun SoftButton(
+    text: String,
+    icon: ImageVector?,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = Palette.Text,
+) {
+    Row(
+        modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Palette.SurfaceHigh)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp)
+            .alpha(if (enabled) 1f else 0.4f),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(text, color = tint, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun InfoTile(label: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Palette.SurfaceHigh)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(label.uppercase(), color = Palette.Faint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
+        content()
+    }
+}
+
+// ---------------------------------------------------------------- TV card (main)
+
+@Composable
+private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
+    val busy = vm.busy != null
+    Panel {
+        SectionTitle("Your TV")
+
+        TvIpField(vm, enabled = !busy)
+
+        val (dotColor, statusText) = when (vm.tvState) {
+            TvState.UNKNOWN -> Palette.Faint to "Not checked yet"
+            TvState.CHECKING -> Palette.Warning to "Connecting…"
+            TvState.ONLINE -> Palette.Success to buildString {
+                append("Connected")
+                vm.tvName.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                vm.tvInfo?.platformVersion?.takeIf { it.isNotBlank() }?.let { append(" · Tizen $it") }
+            }
+            TvState.OFFLINE -> Palette.Error to "Not reachable"
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusDot(dotColor, pulsing = vm.tvState == TvState.CHECKING)
+            Spacer(Modifier.width(10.dp))
+            Text(statusText, color = Palette.Text, fontSize = 14.sp)
+        }
+        if (vm.tvState == TvState.OFFLINE) {
+            val report = vm.ipReport
+            if (report != null) IpReportView(report)
+            else vm.tvError?.let { Text(it, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp) }
+            TextButton(onClick = vm::openGuide) { Text("Open the setup guide", color = Palette.Cyan) }
+        } else if (vm.tvIp.isBlank()) {
+            Text("Type the TV's IP address, or open the setup guide.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InfoTile("On TV", Modifier.weight(1f)) {
+                val installed = vm.installedVersion
+                Text(
+                    when {
+                        vm.tvState != TvState.ONLINE -> "—"
+                        installed != null -> "Nuvio $installed"
+                        else -> "Not installed"
+                    },
+                    color = if (installed != null) Palette.Text else Palette.Muted, fontSize = 16.sp, fontWeight = FontWeight.Medium,
+                )
+            }
+            VersionTile(vm, Modifier.weight(1f), enabled = !busy, onPickFile = onPickFile)
+        }
+
+        val installed = vm.tvState == TvState.ONLINE && vm.installedVersion != null
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SoftButton("Open on TV", Icons.Filled.PlayArrow, enabled = !busy && installed, onClick = vm::launchOnTv, modifier = Modifier.weight(1f))
+            SoftButton("Uninstall", Icons.Filled.Delete, enabled = !busy && installed, onClick = vm::uninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
+        }
+    }
+}
+
+/** TV address input with a "check" button; shared by the main screen and the setup guide. */
+@Composable
+internal fun TvIpField(vm: InstallerViewModel, enabled: Boolean) {
+    val focus = LocalFocusManager.current
+    val busy = !enabled
+    OutlinedTextField(
+        value = vm.tvIp,
+        onValueChange = vm::updateTvIp,
+        label = { Text("TV IP address") },
+        singleLine = true,
+        enabled = enabled,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); vm.checkTv() }),
+        trailingIcon = {
+            if (vm.tvState == TvState.CHECKING) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Palette.Muted)
+            } else {
+                IconButton(onClick = { focus.clearFocus(); vm.checkTv() }, enabled = !busy) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Check TV", tint = Palette.Muted)
+                }
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Palette.Violet, unfocusedBorderColor = Palette.Outline,
+            focusedLabelColor = Palette.Violet, unfocusedLabelColor = Palette.Muted,
+            focusedTextColor = Palette.Text, unfocusedTextColor = Palette.Text, disabledTextColor = Palette.Muted,
+            disabledBorderColor = Palette.Outline, cursorColor = Palette.Violet,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/** Phone and TV address checks, one row each, then what to do about the first problem. */
+@Composable
+internal fun IpReportView(report: IpReport) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        report.rows.forEach { row ->
+            val (icon, tint) = when (row.state) {
+                CheckState.OK -> Icons.Filled.Check to Palette.Success
+                CheckState.FAIL -> Icons.Filled.Close to Palette.Error
+                CheckState.UNKNOWN -> Icons.Filled.Info to Palette.Faint
+            }
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(icon, contentDescription = row.state.name.lowercase(), tint = tint, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(row.text, color = if (row.state == CheckState.FAIL) Palette.Text else Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+        report.fix?.let { fix ->
+            Column(
+                Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(12.dp)).background(Palette.Warning.copy(alpha = 0.1f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("Fix", color = Palette.Warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(fix, color = Palette.Text, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boolean, onPickFile: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        InfoTile("Install", Modifier.fillMaxWidth(), onClick = if (enabled) ({ open = true }) else null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val text = when (val s = vm.source) {
+                    is PackageSource.FromRelease -> "Nuvio ${s.release.tag_name}"
+                    is PackageSource.FromFile -> s.name
+                    null -> if (vm.releasesError != null) "Unavailable" else "Loading…"
+                }
+                Text(text, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose version", tint = Palette.Muted)
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            vm.releases.forEachIndexed { index, release ->
+                DropdownMenuItem(
+                    text = { Text("Nuvio ${release.label}" + if (index == 0) "  (latest)" else "") },
+                    onClick = { vm.source = PackageSource.FromRelease(release); open = false },
+                )
+            }
+            if (vm.releasesError != null) {
+                DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(); open = false })
+            }
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("Choose a .wgt file…") }, onClick = { open = false; onPickFile() })
+        }
+    }
+}
+
+// ---------------------------------------------------------------- progress
+
+@Composable
+private fun ProgressCard(vm: InstallerViewModel) {
+    Panel {
+        SectionTitle(vm.busy.orEmpty() + "…")
+        if (vm.busy == "Install") {
+            val current = vm.stage
+            InstallStage.entries.forEach { step ->
+                val state = when {
+                    current == null -> if (step == InstallStage.PACKAGE) 1 else 0
+                    step.ordinal < current.ordinal -> 2
+                    step == current -> 1
+                    else -> 0
+                }
+                StepRow(step.title, state, if (state == 1) vm.progressLabel else "", if (state == 1) vm.progress else null)
+            }
+        } else {
+            LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Violet, trackColor = Palette.SurfaceHigh)
+        }
+        AnimatedVisibility(vm.waitingForLogin) {
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.SurfaceHigh).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = Palette.Cyan, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign in to Samsung", color = Palette.Text, fontWeight = FontWeight.SemiBold)
+                }
+                Text(
+                    "A one-time Samsung login creates the certificate your TV needs. Finish it in the browser, then come back here.",
+                    color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                TextButton(onClick = vm::reopenLogin) { Text("Open login again", color = Palette.Cyan) }
+            }
+        }
+    }
+}
+
+/** state: 0 = pending, 1 = active, 2 = done */
+@Composable
+private fun StepRow(title: String, state: Int, detail: String, progress: Float?) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            when (state) {
+                2 -> Box(Modifier.size(22.dp).clip(CircleShape).background(Palette.Success.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Check, contentDescription = null, tint = Palette.Success, modifier = Modifier.size(15.dp))
+                }
+                1 -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Violet)
+                else -> Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, Palette.Faint, CircleShape))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                title,
+                color = when (state) { 0 -> Palette.Faint; else -> Palette.Text },
+                fontSize = 15.sp,
+                fontWeight = if (state == 1) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            if (state == 1 && progress != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.weight(1f).clip(CircleShape),
+                        color = Palette.Violet,
+                        trackColor = Palette.SurfaceHigh,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text("${(progress * 100).toInt()}%", color = Palette.Muted, fontSize = 12.sp)
+                }
+            } else if (state == 1 && detail.isNotBlank()) {
+                Text(detail, color = Palette.Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- outcome
+
+@Composable
+private fun OutcomeCard(outcome: Outcome, onDismiss: () -> Unit, onShowLog: () -> Unit, onImport: () -> Unit, onUninstall: () -> Unit) {
+    val (color, icon) = when (outcome.kind) {
+        OutcomeKind.SUCCESS -> Palette.Success to Icons.Filled.Check
+        OutcomeKind.ERROR -> Palette.Error to Icons.Filled.Close
+        OutcomeKind.NEEDS_CERTIFICATE -> Palette.Warning to Icons.Filled.Warning
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(color.copy(alpha = 0.08f))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(color.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(outcome.title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Palette.Muted, modifier = Modifier.size(18.dp))
+            }
+        }
+        Text(outcome.message, color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp)
+        when (outcome.kind) {
+            OutcomeKind.NEEDS_CERTIFICATE -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SoftButton("Import certificate", null, enabled = true, onClick = onImport, modifier = Modifier.weight(1f), tint = Palette.Warning)
+                SoftButton("Uninstall from TV", null, enabled = true, onClick = onUninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
+            }
+            OutcomeKind.ERROR -> TextButton(onClick = onShowLog) { Text("Show details", color = color) }
+            OutcomeKind.SUCCESS -> Unit
+        }
+    }
+}
+
+// ---------------------------------------------------------------- side cards
+
+@Composable
+private fun Collapsible(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    badge: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Panel {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onToggle),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            badge?.invoke()
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = Palette.Muted,
+            )
+        }
+        if (expanded) content()
+    }
+}
+
+@Composable
+private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: () -> Unit, onBackup: () -> Unit) {
+    Panel {
+        SectionTitle("Signing certificate")
+        val (color, text) = when {
+            vm.hasIdentityForTv -> Palette.Success to "Saved for this TV"
+            vm.identityCount > 0 -> Palette.Muted to "${vm.identityCount} saved · not checked against this TV"
+            else -> Palette.Faint to "None yet · created on first install"
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusDot(color)
+            Spacer(Modifier.width(10.dp))
+            Text(text, color = Palette.Text, fontSize = 14.sp)
+        }
+        Text(
+            "Updates must use the same certificate as the first install. A backup is saved automatically when the certificate is created. " +
+                "Import the .json from the desktop installer if you used it before.",
+            color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+        )
+        vm.lastBackup?.let { Text("Last backup: $it", color = Palette.Faint, fontSize = 12.sp, lineHeight = 17.sp) }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SoftButton("Import", null, enabled = enabled, onClick = onImport, modifier = Modifier.weight(1f))
+            SoftButton("Back up", null, enabled = enabled && vm.identityCount > 0, onClick = onBackup, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun LogCard(vm: InstallerViewModel, open: Boolean, onToggle: () -> Unit, copy: (String) -> Unit) {
+    Collapsible("Activity log", open, onToggle, badge = {
+        if (vm.log.isNotEmpty()) Text("${vm.log.size}", color = Palette.Faint, fontSize = 13.sp, modifier = Modifier.padding(end = 6.dp))
+    }) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { copy(vm.logText()) }, enabled = vm.log.isNotEmpty()) { Text("Copy", color = Palette.Cyan) }
+            TextButton(onClick = vm::clearLog, enabled = vm.log.isNotEmpty()) { Text("Clear", color = Palette.Muted) }
+        }
+        val scroll = rememberScrollState()
+        LaunchedEffect(vm.log.size) { scroll.animateScrollTo(scroll.maxValue) }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 300.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Palette.Background)
+                .verticalScroll(scroll)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (vm.log.isEmpty()) Text("Nothing yet.", color = Palette.Faint, fontSize = 12.sp)
+            vm.log.forEach { line ->
+                Text(
+                    line.text,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    color = when (line.level) {
+                        LogLevel.ERROR -> Palette.Error
+                        LogLevel.SUCCESS -> Palette.Success
+                        LogLevel.COMMAND -> Palette.Blue
+                        LogLevel.OUTPUT -> Palette.Faint
+                        LogLevel.INFO -> Palette.Muted
+                    },
+                )
+            }
+        }
+    }
+}

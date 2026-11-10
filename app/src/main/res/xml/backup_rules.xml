@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Signing certificates are backed up with the app so updates keep working after a phone change. -->
+<full-backup-content>
+    <include domain="file" path="identities/" />
+    <include domain="sharedpref" path="." />
+</full-backup-content>
