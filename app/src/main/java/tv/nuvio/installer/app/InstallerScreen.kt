@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
@@ -88,8 +89,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import tv.nuvio.installer.core.CheckState
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
@@ -134,6 +137,8 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
         uri?.let(vm::exportIdentities)
     }
     var logOpen by rememberSaveable { mutableStateOf(false) }
+    var aboutOpen by rememberSaveable { mutableStateOf(false) }
+    if (aboutOpen) AboutDialog(vm, onDismiss = { aboutOpen = false })
 
     // The automatic certificate backup could not write to Downloads: open the save dialog instead.
     LaunchedEffect(vm.backupRequest) {
@@ -169,7 +174,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Header(onGuide = vm::openGuide)
+                Header(onGuide = vm::openGuide, onAbout = { aboutOpen = true })
                 vm.appUpdate?.let { update -> AppUpdateBanner(update, onDismiss = vm::dismissAppUpdate) }
                 if (installing) ProgressCard(vm)
                 vm.outcome?.let { outcome ->
@@ -191,7 +196,6 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     onSignIn = vm::createCertificate,
                 )
                 LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
-                AboutCard()
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -247,7 +251,7 @@ private fun BottomBar(vm: InstallerViewModel) {
 }
 
 @Composable
-private fun Header(onGuide: () -> Unit) {
+private fun Header(onGuide: () -> Unit, onAbout: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(36.dp))
@@ -256,12 +260,26 @@ private fun Header(onGuide: () -> Unit) {
                 Text("TV Installer", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Text("for Nuvio", color = Palette.Muted, fontSize = 12.sp)
             }
-            TextButton(onClick = onGuide) { Text("Setup guide", color = Palette.Link) }
+            HeaderAction(Icons.Filled.List, "Guide", onGuide)
+            HeaderAction(Icons.Filled.Info, "About", onAbout)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip("for Samsung TV", Palette.Muted)
             Chip("LG TV · coming soon", Palette.Faint)
         }
+    }
+}
+
+/** Small icon with a label underneath, for the header. */
+@Composable
+private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(22.dp))
+        Text(label, color = Palette.Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -399,12 +417,12 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            InfoTile("On TV", Modifier.weight(1f)) {
+            InfoTile("Nuvio on TV", Modifier.weight(1f)) {
                 val installed = vm.installedVersion
                 Text(
                     when {
                         vm.tvState != TvState.ONLINE -> "—"
-                        installed != null -> "Nuvio $installed"
+                        installed != null -> installed
                         else -> "Not installed"
                     },
                     color = if (installed != null) Palette.Text else Palette.Muted, fontSize = 16.sp, fontWeight = FontWeight.Medium,
@@ -546,11 +564,11 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
         InfoTile("Install", Modifier.fillMaxWidth(), onClick = if (enabled) ({ open = true }) else null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val text = when (val s = vm.source) {
-                    is PackageSource.FromRelease -> "Nuvio ${s.release.tag_name}"
+                    is PackageSource.FromRelease -> s.release.tag_name
                     is PackageSource.FromFile -> s.name
                     null -> if (vm.releasesError != null) "Unavailable" else "Loading…"
                 }
-                Text(text, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f))
+                Text(text, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose version", tint = Palette.Muted)
             }
         }
@@ -811,27 +829,76 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
     }
 }
 
-/** Who made the app, its version and licence, and where to find the code or report a problem. */
+/** Popup: the app, who made it, its licence and update status, and links to the code and to report a problem. */
 @Composable
-private fun AboutCard() {
+private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit) {
     val uri = LocalUriHandler.current
     val repo = "https://github.com/${UpdateCheck.APP_REPO}"
-    Panel {
-        SectionTitle("About")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(44.dp))
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text("TV Installer for Nuvio", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text("Version ${BuildConfig.VERSION_NAME} · Open source (GPL-3.0)", color = Palette.Muted, fontSize = 13.sp)
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Palette.Surface)
+                .border(1.dp, Palette.Outline, RoundedCornerShape(24.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+        ) {
+            Box(Modifier.fillMaxWidth()) {
+                IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).size(36.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Palette.Muted, modifier = Modifier.size(20.dp))
+                }
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(76.dp))
+                    Spacer(Modifier.height(14.dp))
+                    Text("TV Installer for Nuvio", color = Palette.Text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Install and update Nuvio on your TV from your phone.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(10.dp))
+                    Chip("Version ${BuildConfig.VERSION_NAME}", Palette.Text)
+                }
             }
+            Spacer(Modifier.height(18.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.SurfaceHigh),
+            ) {
+                AboutRow("Made by", "Pratyush", Palette.Link) { uri.openUri("https://github.com/pratyush997") }
+                HorizontalDivider(color = Palette.Outline)
+                AboutRow("Licence", "Open source · GPL-3.0", Palette.Link) { uri.openUri("$repo/blob/main/LICENSE") }
+                HorizontalDivider(color = Palette.Outline)
+                when (val status = vm.appUpdateStatus) {
+                    AppUpdateStatus.Checking -> AboutRow("Updates", "Checking…", Palette.Muted)
+                    AppUpdateStatus.UpToDate -> AboutRow("Updates", "Up to date", Palette.Success)
+                    AppUpdateStatus.Failed -> AboutRow("Updates", "Couldn't check · Retry", Palette.Warning, onClick = vm::checkAppUpdate)
+                    is AppUpdateStatus.Available -> AboutRow("Updates", "${status.update.version} available · Download", Palette.Link) {
+                        uri.openUri(status.update.downloadUrl)
+                    }
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            GradientButton("View on GitHub", enabled = true, onClick = { uri.openUri(repo) })
+            Spacer(Modifier.height(10.dp))
+            SoftButton("Report a problem", null, enabled = true, onClick = { uri.openUri("$repo/issues/new/choose") }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Nuvio is made by NuvioMedia.",
+                color = Palette.Faint, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+            )
         }
-        Text("Made by Pratyush", color = Palette.Text, fontSize = 14.sp)
-        Text("Nuvio is made by NuvioMedia.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SoftButton("GitHub", null, enabled = true, onClick = { uri.openUri(repo) }, modifier = Modifier.weight(1f), tint = Palette.Link)
-            SoftButton("Report a problem", null, enabled = true, onClick = { uri.openUri("$repo/issues/new/choose") }, modifier = Modifier.weight(1f))
-        }
+    }
+}
+
+@Composable
+private fun AboutRow(label: String, value: String, valueColor: Color, onClick: (() -> Unit)? = null) {
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Palette.Muted, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(value, color = valueColor, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
     }
 }
 

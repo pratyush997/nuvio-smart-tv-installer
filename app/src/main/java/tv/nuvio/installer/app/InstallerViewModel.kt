@@ -104,6 +104,9 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** A newer version of this app on GitHub, or null. */
     var appUpdate by mutableStateOf<AppUpdate?>(null)
         private set
+    /** Result of this app's own update check, for the About popup (the banner above can be dismissed). */
+    var appUpdateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Checking)
+        private set
     var releases by mutableStateOf<List<Release>>(emptyList())
         private set
     var releasesError by mutableStateOf<String?>(null)
@@ -141,16 +144,24 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         refreshIdentities()
-        showGuide = !prefs.getBoolean("setupDone", false) && identityCount == 0
+        showGuide = !prefs.getBoolean("setupDone", false)
         loadReleases()
         checkAppUpdate()
         if (tvIp.isNotBlank()) checkTv()
     }
 
-    private fun checkAppUpdate() {
+    /** Never throws: an offline phone just shows "couldn't check" in About. */
+    fun checkAppUpdate() {
+        appUpdateStatus = AppUpdateStatus.Checking
         viewModelScope.launch {
-            val update = withContext(Dispatchers.IO) { UpdateCheck.newerApp() } ?: return@launch
-            if (prefs.getString(PREF_APP_DISMISSED_TAG, null) != update.tag) appUpdate = update
+            val result = withContext(Dispatchers.IO) { runCatching { UpdateCheck.newerApp() } }
+            val update = result.getOrNull()
+            appUpdateStatus = when {
+                result.isFailure -> AppUpdateStatus.Failed
+                update != null -> AppUpdateStatus.Available(update)
+                else -> AppUpdateStatus.UpToDate
+            }
+            if (update != null && prefs.getString(PREF_APP_DISMISSED_TAG, null) != update.tag) appUpdate = update
         }
     }
 

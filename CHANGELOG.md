@@ -5,10 +5,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 ## [Unreleased]
 
 ### Added
-- **About** section in the app: version, licence, author (Pratyush), and links to the GitHub repo and to report a problem.
+- **About** popup, opened from the About button at the top of the main screen: version, licence, author (Pratyush), and links to the GitHub repo and to report a problem.
 
 ### Changed
-- The header now reads "TV Installer · for Nuvio".
+- The header now reads "TV Installer · for Nuvio", with compact **Guide** and **About** buttons that fit on phones.
+- The setup guide opens the first time the app starts, for everyone (it can be skipped).
+- The version tiles show just the version number, so it is no longer cut off on phones.
+
+### Fixed
+- The app could close by itself when opened without internet (the update check failed).
 
 ## [1.3.0] - 2026-11-10
 

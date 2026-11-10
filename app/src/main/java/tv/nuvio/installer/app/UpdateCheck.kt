@@ -27,6 +27,13 @@ import java.util.concurrent.TimeUnit
 /** A newer release of this app. [downloadUrl] is the APK itself when the release has one. */
 data class AppUpdate(val tag: String, val version: String, val downloadUrl: String, val pageUrl: String)
 
+sealed interface AppUpdateStatus {
+    data object Checking : AppUpdateStatus
+    data object UpToDate : AppUpdateStatus
+    data object Failed : AppUpdateStatus
+    data class Available(val update: AppUpdate) : AppUpdateStatus
+}
+
 /**
  * Twice a day:
  * - compares the newest Nuvio release with the version last seen on the TV, and notifies when a
