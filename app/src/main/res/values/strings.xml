@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">Nuvio Tizen Installer</string>
+    <string name="app_name">TV Installer for Nuvio</string>
+    <!-- Short name under the home-screen icon -->
+    <string name="launcher_name">TV Installer</string>
 </resources>

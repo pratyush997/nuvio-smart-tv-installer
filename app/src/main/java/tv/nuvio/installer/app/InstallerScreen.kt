@@ -100,13 +100,16 @@ object Palette {
     val Text = Color(0xFFF4F4F6)
     val Muted = Color(0xFF9A9AA8)
     val Faint = Color(0xFF5C5C6A)
-    val Cyan = Color(0xFF22D3EE)
+    /** Text buttons and links. */
+    val Link = Color(0xFF7DD3FC)
     val Blue = Color(0xFF3B82F6)
-    val Violet = Color(0xFF8B5CF6)
+    /** Progress, focus and selection. */
+    val Accent = Color(0xFF0EA5E9)
     val Success = Color(0xFF34D399)
     val Error = Color(0xFFF87171)
     val Warning = Color(0xFFFBBF24)
-    val BrandGradient = Brush.horizontalGradient(listOf(Blue, Violet))
+    /** Same colours as the app icon. */
+    val BrandGradient = Brush.horizontalGradient(listOf(Color(0xFF1D4ED8), Color(0xFF0E7490)))
 }
 
 // ---------------------------------------------------------------- screen
@@ -212,7 +215,7 @@ private fun BottomBar(vm: InstallerViewModel) {
                 LinearProgressIndicator(
                     progress = { fraction.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().clip(CircleShape),
-                    color = Palette.Violet,
+                    color = Palette.Accent,
                     trackColor = Palette.SurfaceHigh,
                 )
             }
@@ -233,9 +236,13 @@ private fun BottomBar(vm: InstallerViewModel) {
 private fun Header(onGuide: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.nuvio_wordmark), contentDescription = "Nuvio", modifier = Modifier.height(26.dp))
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onGuide) { Text("Setup guide", color = Palette.Cyan) }
+            Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(36.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("TV Installer", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("for Nuvio · unofficial", color = Palette.Muted, fontSize = 12.sp)
+            }
+            TextButton(onClick = onGuide) { Text("Setup guide", color = Palette.Link) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip("for Samsung TV", Palette.Muted)
@@ -372,7 +379,7 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             val report = vm.ipReport
             if (report != null) IpReportView(report)
             else vm.tvError?.let { Text(it, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp) }
-            TextButton(onClick = vm::openGuide) { Text("Open the setup guide", color = Palette.Cyan) }
+            TextButton(onClick = vm::openGuide) { Text("Open the setup guide", color = Palette.Link) }
         } else if (vm.tvIp.isBlank()) {
             Text("Type the TV's IP address, or open the setup guide.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
         }
@@ -424,10 +431,10 @@ internal fun TvIpField(vm: InstallerViewModel, enabled: Boolean) {
         },
         shape = RoundedCornerShape(14.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Palette.Violet, unfocusedBorderColor = Palette.Outline,
-            focusedLabelColor = Palette.Violet, unfocusedLabelColor = Palette.Muted,
+            focusedBorderColor = Palette.Accent, unfocusedBorderColor = Palette.Outline,
+            focusedLabelColor = Palette.Accent, unfocusedLabelColor = Palette.Muted,
             focusedTextColor = Palette.Text, unfocusedTextColor = Palette.Text, disabledTextColor = Palette.Muted,
-            disabledBorderColor = Palette.Outline, cursorColor = Palette.Violet,
+            disabledBorderColor = Palette.Outline, cursorColor = Palette.Accent,
         ),
         modifier = Modifier.fillMaxWidth(),
     )
@@ -511,7 +518,7 @@ private fun ProgressCard(vm: InstallerViewModel) {
                 StepRow(step.title, state, if (state == 1) vm.progressLabel else "", if (state == 1) vm.progress else null)
             }
         } else {
-            LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Violet, trackColor = Palette.SurfaceHigh)
+            LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Accent, trackColor = Palette.SurfaceHigh)
         }
         AnimatedVisibility(vm.waitingForLogin) {
             Column(
@@ -519,7 +526,7 @@ private fun ProgressCard(vm: InstallerViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Lock, contentDescription = null, tint = Palette.Cyan, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Sign in to Samsung", color = Palette.Text, fontWeight = FontWeight.SemiBold)
                 }
@@ -527,7 +534,7 @@ private fun ProgressCard(vm: InstallerViewModel) {
                     "A one-time Samsung login creates the certificate your TV needs. Finish it in the browser, then come back here.",
                     color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
                 )
-                TextButton(onClick = vm::reopenLogin) { Text("Open login again", color = Palette.Cyan) }
+                TextButton(onClick = vm::reopenLogin) { Text("Open login again", color = Palette.Link) }
             }
         }
     }
@@ -542,7 +549,7 @@ private fun StepRow(title: String, state: Int, detail: String, progress: Float?)
                 2 -> Box(Modifier.size(22.dp).clip(CircleShape).background(Palette.Success.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.Check, contentDescription = null, tint = Palette.Success, modifier = Modifier.size(15.dp))
                 }
-                1 -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Violet)
+                1 -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Accent)
                 else -> Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, Palette.Faint, CircleShape))
             }
         }
@@ -559,7 +566,7 @@ private fun StepRow(title: String, state: Int, detail: String, progress: Float?)
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier.weight(1f).clip(CircleShape),
-                        color = Palette.Violet,
+                        color = Palette.Accent,
                         trackColor = Palette.SurfaceHigh,
                     )
                     Spacer(Modifier.width(10.dp))
@@ -672,7 +679,7 @@ private fun LogCard(vm: InstallerViewModel, open: Boolean, onToggle: () -> Unit,
         if (vm.log.isNotEmpty()) Text("${vm.log.size}", color = Palette.Faint, fontSize = 13.sp, modifier = Modifier.padding(end = 6.dp))
     }) {
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { copy(vm.logText()) }, enabled = vm.log.isNotEmpty()) { Text("Copy", color = Palette.Cyan) }
+            TextButton(onClick = { copy(vm.logText()) }, enabled = vm.log.isNotEmpty()) { Text("Copy", color = Palette.Link) }
             TextButton(onClick = vm::clearLog, enabled = vm.log.isNotEmpty()) { Text("Clear", color = Palette.Muted) }
         }
         val scroll = rememberScrollState()

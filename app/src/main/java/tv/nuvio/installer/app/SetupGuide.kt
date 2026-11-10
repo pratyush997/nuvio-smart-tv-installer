@@ -72,7 +72,7 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit) {
         LinearProgressIndicator(
             progress = { (step + 1f) / GUIDE_STEPS },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).clip(CircleShape),
-            color = Palette.Violet,
+            color = Palette.Accent,
             trackColor = Palette.SurfaceHigh,
         )
 
@@ -166,7 +166,7 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(vm.phoneIp, color = Palette.Cyan, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+            Text(vm.phoneIp, color = Palette.Link, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
             Spacer(Modifier.width(12.dp))
             Text("Copy", color = Palette.Muted, fontSize = 12.sp)
         }
@@ -252,7 +252,7 @@ private fun GuideStep(number: Int, text: String) {
 @Composable
 private fun Bullet(text: String) {
     Row(verticalAlignment = Alignment.Top) {
-        Box(Modifier.padding(top = 8.dp).size(6.dp).clip(CircleShape).background(Palette.Violet))
+        Box(Modifier.padding(top = 8.dp).size(6.dp).clip(CircleShape).background(Palette.Accent))
         Spacer(Modifier.width(12.dp))
         Text(text, color = Palette.Text, fontSize = 15.sp, lineHeight = 21.sp)
     }

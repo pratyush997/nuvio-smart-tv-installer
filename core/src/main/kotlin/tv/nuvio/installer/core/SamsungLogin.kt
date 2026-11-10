@@ -180,10 +180,10 @@ class SamsungLoginServer(
 
     private fun page(authorized: Boolean): String {
         val title = if (authorized) "Samsung authorization complete" else "Samsung authorization in progress"
-        val text = if (authorized) "Return to the Nuvio TV Installer app. Installation continues automatically."
+        val text = if (authorized) "Return to the TV Installer app. Installation continues automatically."
         else "Complete the Samsung login. The Nuvio installer receives the authorization automatically."
         val button = if (authorized && returnUrl != null) {
-            "<p><a href=\"$returnUrl\" style=\"display:inline-block;padding:14px 22px;border-radius:12px;background:#34d399;color:#000;text-decoration:none;font-weight:600\">Return to Nuvio Installer</a></p>"
+            "<p><a href=\"$returnUrl\" style=\"display:inline-block;padding:14px 22px;border-radius:12px;background:#34d399;color:#000;text-decoration:none;font-weight:600\">Return to TV Installer</a></p>"
         } else ""
         return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nuvio Samsung Login</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0d0d;color:#fff;

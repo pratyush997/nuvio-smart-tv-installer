@@ -2,6 +2,16 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- New name: **TV Installer for Nuvio** ("TV Installer" under the home-screen icon).
+- New original app icon (a phone sending to a TV), with a themed icon for Android 13+.
+- App colours now match the new icon.
+
+### Removed
+- Nuvio's logo and wordmark. The app no longer uses NuvioMedia's artwork.
+
 ## [1.1.0] - 2026-11-10
 
 ### Added

@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    primary = Palette.Violet,
+                    primary = Palette.Accent,
                     onPrimary = androidx.compose.ui.graphics.Color.White,
                     background = Palette.Background,
                     surface = Palette.SurfaceHigh,

@@ -1,4 +1,8 @@
-# Nuvio TV Installer for Samsung TVs (Android)
+<img src="docs/icon.svg" width="96" alt="" align="right">
+
+# TV Installer for Nuvio
+
+**Samsung TVs · Android**
 
 [![Latest release](https://img.shields.io/github/v/release/pratyush997/nuvio-smart-tv-installer)](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
@@ -130,7 +134,7 @@ Changes in each version are listed in [CHANGELOG.md](CHANGELOG.md).
 ## Credits
 
 - [NuvioMedia](https://github.com/NuvioMedia) for Nuvio TV and the desktop [Nuvio TV Installer](https://github.com/NuvioMedia/NuvioTVSmart-Installer). The Samsung install flow in `core` (SDB commands, certificate requests, package signing) is a Kotlin port of that installer, which is published under the GPL-3.0.
-- The Nuvio name and logo belong to NuvioMedia and are used to say which app this installs. This project is not affiliated with or endorsed by NuvioMedia.
+- The Nuvio name belongs to NuvioMedia and is used only to say which app this installs. This project is not affiliated with or endorsed by NuvioMedia. The app icon is original to this project.
 - Samsung and Tizen are trademarks of Samsung Electronics. LG and webOS are trademarks of LG Electronics.
 
 ## License
