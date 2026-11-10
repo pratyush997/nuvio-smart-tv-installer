@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Copyright (C) 2026 pratyush997 and contributors
+// Copyright (C) 2026 Pratyush (pratyush997) and contributors
 
 package tv.nuvio.installer.app
 
@@ -191,10 +191,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     onSignIn = vm::createCertificate,
                 )
                 LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
-                Text(
-                    "TV Installer ${BuildConfig.VERSION_NAME}",
-                    color = Palette.Faint, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
-                )
+                AboutCard()
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -257,7 +254,7 @@ private fun Header(onGuide: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("TV Installer", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                Text("for Nuvio · unofficial", color = Palette.Muted, fontSize = 12.sp)
+                Text("for Nuvio", color = Palette.Muted, fontSize = 12.sp)
             }
             TextButton(onClick = onGuide) { Text("Setup guide", color = Palette.Link) }
         }
@@ -810,6 +807,30 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Import", null, enabled = enabled, onClick = onImport, modifier = Modifier.weight(1f))
             SoftButton("Back up", null, enabled = enabled && vm.identityCount > 0, onClick = onBackup, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** Who made the app, its version and licence, and where to find the code or report a problem. */
+@Composable
+private fun AboutCard() {
+    val uri = LocalUriHandler.current
+    val repo = "https://github.com/${UpdateCheck.APP_REPO}"
+    Panel {
+        SectionTitle("About")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(44.dp))
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("TV Installer for Nuvio", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("Version ${BuildConfig.VERSION_NAME} · Open source (GPL-3.0)", color = Palette.Muted, fontSize = 13.sp)
+            }
+        }
+        Text("Made by Pratyush", color = Palette.Text, fontSize = 14.sp)
+        Text("Nuvio is made by NuvioMedia.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SoftButton("GitHub", null, enabled = true, onClick = { uri.openUri(repo) }, modifier = Modifier.weight(1f), tint = Palette.Link)
+            SoftButton("Report a problem", null, enabled = true, onClick = { uri.openUri("$repo/issues/new/choose") }, modifier = Modifier.weight(1f))
         }
     }
 }

@@ -2,6 +2,14 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **About** section in the app: version, licence, author (Pratyush), and links to the GitHub repo and to report a problem.
+
+### Changed
+- The header now reads "TV Installer · for Nuvio".
+
 ## [1.3.0] - 2026-11-10
 
 ### Added

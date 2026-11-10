@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Copyright (C) 2026 pratyush997 and contributors
+// Copyright (C) 2026 Pratyush (pratyush997) and contributors
 
 package tv.nuvio.installer.cli
 

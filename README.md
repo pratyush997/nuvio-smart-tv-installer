@@ -11,9 +11,15 @@ An Android app that installs and updates [Nuvio TV](https://github.com/NuvioMedi
 
 It does the same job as the Samsung part of the desktop [Nuvio TV Installer](https://github.com/NuvioMedia/NuvioTVSmart-Installer), on Android.
 
-> **Unofficial.** This is a community project. It is not made or endorsed by NuvioMedia or Samsung.
-
 **LG TVs:** not supported yet. Coming soon.
+
+## About
+
+TV Installer for Nuvio is made by **Pratyush** ([@pratyush997](https://github.com/pratyush997)). It is free and open source under the GPL-3.0.
+
+- Source code: https://github.com/pratyush997/nuvio-smart-tv-installer
+- Download: [latest release](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest)
+- Report a problem: [issues](https://github.com/pratyush997/nuvio-smart-tv-installer/issues/new/choose)
 
 ## Download
 
@@ -143,7 +149,7 @@ Changes in each version are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-Copyright (C) 2026 pratyush997 and contributors.
+Copyright (C) 2026 Pratyush (pratyush997) and contributors.
 
 This program is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License, version 3](LICENSE) (`GPL-3.0-only`), as published by the Free Software Foundation.
 

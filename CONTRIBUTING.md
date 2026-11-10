@@ -30,7 +30,7 @@ Never post your certificate file (`samsung-tv-certificate-*.json` or `nuvio-tize
 - New source files start with the licence header:
   ```kotlin
   // SPDX-License-Identifier: GPL-3.0-only
-  // Copyright (C) 2026 pratyush997 and contributors
+  // Copyright (C) 2026 Pratyush (pratyush997) and contributors
   ```
 - Text shown to users should say what to do next, in plain words.
 
