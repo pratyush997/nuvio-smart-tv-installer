@@ -32,6 +32,8 @@ import tv.nuvio.installer.core.ReleaseChannel
 import tv.nuvio.installer.core.ReleaseNotes
 import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.SamsungCertificates
+import tv.nuvio.installer.core.SavedTv
+import tv.nuvio.installer.core.SavedTvs
 import tv.nuvio.installer.core.ExpiryState
 import tv.nuvio.installer.core.GitHubReleases
 import tv.nuvio.installer.core.IdentityStore
@@ -95,43 +97,68 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
         }
     }
 
+    /** Goes through every saved TV that has Nuvio on it. */
     private fun checkNuvio(prefs: android.content.SharedPreferences) {
-        val installed = prefs.getString(PREF_INSTALLED_VERSION, null) ?: return
+        val tvs = TvList.load(prefs).filter { it.installedVersion != null }
+        if (tvs.isEmpty()) return
         val latest = ReleaseChannel.latest(GitHubReleases().recent(), beta = prefs.getBoolean(PREF_BETA_CHANNEL, false)) ?: return
-        val tvIp = prefs.getString("tvIp", "").orEmpty()
         val store = IdentityStore(File(applicationContext.filesDir, "identities"))
-        val duid = prefs.getString(PREF_TV_DUID, null)
+        val wifi = onWifi()
+        for (tv in tvs) checkTv(prefs, tv, latest, store, wifi, nameTv = tvs.size > 1)
+    }
+
+    private fun checkTv(
+        prefs: android.content.SharedPreferences,
+        tv: SavedTv,
+        latest: Release,
+        store: IdentityStore,
+        onWifi: Boolean,
+        nameTv: Boolean,
+    ) {
+        val installed = tv.installedVersion ?: return
+        val duid = tv.duid
         val hasCertificate = if (duid != null) store.candidatesFor(duid).isNotEmpty() else store.all().any { it.second.isUsable }
-        val attemptsKey = "$PREF_AUTO_ATTEMPTS:${latest.tag_name}"
+        val attemptsKey = "$PREF_AUTO_ATTEMPTS:${tv.key}:${latest.tag_name}"
         val plan = AutoUpdate.plan(
             installed, latest,
             enabled = prefs.getBoolean(PREF_AUTO_UPDATE, false),
-            tvIp = tvIp,
-            onWifi = onWifi(),
+            tvIp = tv.ip,
+            onWifi = onWifi,
             hasCertificate = hasCertificate,
             attempts = prefs.getInt(attemptsKey, 0),
         )
+        val label = tv.label.takeIf { nameTv }
         when (plan) {
             AutoUpdatePlan.None -> return
             is AutoUpdatePlan.Install -> {
-                val error = autoInstall(tvIp, plan.release, store)
+                val error = autoInstall(tv.ip, plan.release, store)
                 if (error == null) {
                     val version = plan.release.tag_name.removePrefix("v")
-                    prefs.edit().putString(PREF_INSTALLED_VERSION, version).remove(attemptsKey).apply()
-                    UpdateCheck.notifyAutoUpdated(applicationContext, installed, version)
+                    TvList.update(prefs) { list ->
+                        list.map {
+                            if (SavedTvs.sameTv(it, tv)) it.copy(installedVersion = version)
+                            else it
+                        }
+                    }
+                    prefs.edit().remove(attemptsKey).apply()
+                    if (prefs.getString("tvIp", null) == tv.ip) prefs.edit().putString(PREF_INSTALLED_VERSION, version).apply()
+                    UpdateCheck.notifyAutoUpdated(applicationContext, tv, label, installed, version)
                     return
                 }
                 prefs.edit().putInt(attemptsKey, prefs.getInt(attemptsKey, 0) + 1).apply()
-                notifyOnce(prefs, installed, plan.release, "Automatic update did not finish: $error")
+                notifyOnce(prefs, tv, label, installed, plan.release, "Automatic update did not finish: $error")
             }
-            is AutoUpdatePlan.Notify -> notifyOnce(prefs, installed, plan.release, plan.reason?.let { "Not updated automatically: $it." })
+            is AutoUpdatePlan.Notify -> notifyOnce(prefs, tv, label, installed, plan.release, plan.reason?.let { "Not updated automatically: $it." })
         }
     }
 
-    private fun notifyOnce(prefs: android.content.SharedPreferences, installed: String, release: Release, note: String?) {
-        if (prefs.getString(PREF_NOTIFIED_TAG, null) == release.tag_name) return
-        if (UpdateCheck.notify(applicationContext, installed, release.tag_name, note, ReleaseNotes.summary(release.body))) {
-            prefs.edit().putString(PREF_NOTIFIED_TAG, release.tag_name).apply()
+    private fun notifyOnce(prefs: android.content.SharedPreferences, tv: SavedTv, label: String?, installed: String, release: Release, note: String?) {
+        val key = "$PREF_NOTIFIED_TAG:${tv.key}"
+        // Before several TVs were supported, one "notified" mark covered the only TV.
+        val notified = prefs.getString(key, null) ?: prefs.getString(PREF_NOTIFIED_TAG, null).takeIf { label == null }
+        if (notified == release.tag_name) return
+        if (UpdateCheck.notify(applicationContext, tv, label, installed, release.tag_name, note, ReleaseNotes.summary(release.body))) {
+            prefs.edit().putString(key, release.tag_name).apply()
         }
     }
 
@@ -230,49 +257,65 @@ object UpdateCheck {
         return manager.areNotificationsEnabled()
     }
 
-    /** Returns false when notifications are not allowed, so the check tries again later. */
-    fun notify(context: Context, installed: String, latest: String, note: String? = null, whatsNew: String = ""): Boolean {
+    /** Extra on [ACTION_UPDATE]: the [SavedTv.key] of the TV to update. */
+    const val EXTRA_TV_KEY = "tvKey"
+
+    /** One "new version" notification per TV, so one TV's notification does not replace another's. */
+    private fun tvNotificationId(tvKey: String) = 1000 + (tvKey.hashCode() and 0x7fff)
+
+    /** "your TV", or the TV's name in quotes when the phone has several. */
+    private fun tvName(label: String?) = if (label != null) "\"$label\"" else "your TV"
+
+    /**
+     * Tells the user a new Nuvio is out for [tv]; tapping it updates that TV. [label] names the
+     * TV when the phone has several. Returns false when notifications are not allowed, so the
+     * check tries again later.
+     */
+    fun notify(
+        context: Context, tv: SavedTv, label: String?, installed: String, latest: String,
+        note: String? = null, whatsNew: String = "",
+    ): Boolean {
         if (!canNotify(context)) return false
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val id = tvNotificationId(tv.key)
         val open = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java).setAction(ACTION_UPDATE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            context, id,
+            Intent(context, MainActivity::class.java).setAction(ACTION_UPDATE).putExtra(EXTRA_TV_KEY, tv.key)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val text = "${tvName(label).replaceFirstChar { it.uppercase() }} has $installed. Tap to update it."
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_update)
-            .setContentTitle("Nuvio $latest is out")
-            .setContentText("Your TV has $installed. Tap to update it.")
-            .setStyle(
-                Notification.BigTextStyle().bigText(
-                    listOfNotNull("Your TV has $installed. Tap to update it.", note, whatsNew.ifBlank { null }).joinToString("\n")
-                )
-            )
+            .setContentTitle(if (label != null) "Nuvio $latest is out for \"$label\"" else "Nuvio $latest is out")
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(text, note, whatsNew.ifBlank { null }).joinToString("\n")))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(id, notification)
         return true
     }
 
-    fun notifyAutoUpdated(context: Context, from: String, to: String): Boolean {
+    fun notifyAutoUpdated(context: Context, tv: SavedTv, label: String?, from: String, to: String): Boolean {
         if (!canNotify(context)) return false
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val id = tvNotificationId(tv.key)
         val open = PendingIntent.getActivity(
-            context, 3,
+            context, id,
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_update)
-            .setContentTitle("Nuvio $to is on your TV")
+            .setContentTitle("Nuvio $to is on ${tvName(label)}")
             .setContentText("Updated automatically from $from.")
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(id, notification)
         return true
     }
 
@@ -297,7 +340,10 @@ object UpdateCheck {
         return true
     }
 
-    fun dismiss(context: Context) {
-        context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+    /** Removes the "new version" notification for the TV with [tvKey], and the single one older versions showed. */
+    fun dismiss(context: Context, tvKey: String?) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        manager.cancel(NOTIFICATION_ID)
+        if (tvKey != null) manager.cancel(tvNotificationId(tvKey))
     }
 }
