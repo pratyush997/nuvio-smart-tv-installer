@@ -11,8 +11,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class CertificateExpiryTest {
-    // X.509 dates have one-second precision.
-    private fun days(n: Long): Instant = Instant.now().plus(Duration.ofDays(n)).truncatedTo(ChronoUnit.SECONDS)
+    // X.509 dates have one-second precision. One fixed "now", so two calls with the same n give
+    // the same instant even when the clock ticks over a second between them.
+    private val now: Instant = Instant.now().truncatedTo(ChronoUnit.SECONDS)
+    private fun days(n: Long): Instant = now.plus(Duration.ofDays(n))
 
     @Test
     fun expiryIsTheEarlierOfAuthorAndDistributor() {
