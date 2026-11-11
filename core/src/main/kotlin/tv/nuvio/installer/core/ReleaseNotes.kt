@@ -53,6 +53,24 @@ object ReleaseNotes {
         return lines.filterIndexed { i, l -> l.kind != NoteLine.Kind.HEADING || lines.getOrNull(i + 1)?.kind.let { it != null && it != NoteLine.Kind.HEADING } }
     }
 
+    private val setupSection = Regex("^(?:install|download|checksum|verify|sha-?256)", RegexOption.IGNORE_CASE)
+
+    /**
+     * Only what changed: drops the intro before the first heading and the install, download and
+     * checksum sections (and anything under them, like credits). Falls back to every line when
+     * that leaves nothing, so notes without headings still show.
+     */
+    fun changes(markdown: String?): List<NoteLine> {
+        val lines = parse(markdown)
+        val kept = ArrayList<NoteLine>()
+        var keep = false
+        for (line in lines) {
+            if (line.kind == NoteLine.Kind.HEADING) keep = !setupSection.containsMatchIn(line.text)
+            if (keep) kept += line
+        }
+        return kept.ifEmpty { lines }
+    }
+
     /** A short plain summary for a notification: the first [max] points. */
     fun summary(markdown: String?, max: Int = 3): String =
         parse(markdown).filter { it.kind != NoteLine.Kind.HEADING }.take(max).joinToString("\n") { "• ${it.text}" }

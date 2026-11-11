@@ -69,4 +69,40 @@ class ReleaseNotesTest {
         val release = Json { ignoreUnknownKeys = true }.decodeFromString(Release.serializer(), """{"id":1,"tag_name":"v1.3.0","body":"* one"}""")
         assertEquals("* one", release.body)
     }
+
+    @Test
+    fun changesKeepsWhatChangedAndDropsInstallAndChecksum() {
+        val body = """
+            Install and update Nuvio TV on a Samsung Tizen TV from your Android phone.
+
+            ## Install
+
+            1. Download `TVInstallerForNuvio-1.3.1.apk` below and open it on your phone.
+
+            ## New in 1.3.1
+
+            - **About:** tap **About** to see the version.
+
+            ## Fixed
+
+            - The app could close by itself when opened without internet.
+
+            ## Checksum
+
+            ```
+            0083f9622e1f1ed4bac9b223ed2469d847b96f1ffb96c9bf40ab3962560cdf10
+            ```
+
+            Made by Pratyush ([@pratyush997](https://github.com/pratyush997)).
+        """.trimIndent()
+        assertEquals(
+            listOf("New in 1.3.1", "About: tap About to see the version.", "Fixed", "The app could close by itself when opened without internet."),
+            ReleaseNotes.changes(body).map { it.text },
+        )
+    }
+
+    @Test
+    fun changesFallsBackToAllLinesWithoutHeadings() {
+        assertEquals(listOf("Faster start"), ReleaseNotes.changes("- Faster start").map { it.text })
+    }
 }

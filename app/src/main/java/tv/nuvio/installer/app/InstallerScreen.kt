@@ -773,6 +773,7 @@ internal fun highlightIps(text: String): AnnotatedString = buildAnnotatedString 
 @Composable
 private fun AppUpdateBanner(update: AppUpdate, onDismiss: () -> Unit) {
     val uri = LocalUriHandler.current
+    var notesOpen by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.Accent.copy(alpha = 0.1f))
             .border(1.dp, Palette.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp)).padding(16.dp),
@@ -789,7 +790,65 @@ private fun AppUpdateBanner(update: AppUpdate, onDismiss: () -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Download", null, enabled = true, onClick = { uri.openUri(update.downloadUrl) }, modifier = Modifier.weight(1f), tint = Palette.Link)
-            SoftButton("What's new", null, enabled = true, onClick = { uri.openUri(update.pageUrl) }, modifier = Modifier.weight(1f), tint = Palette.Muted)
+            SoftButton("What's new", null, enabled = true, onClick = { notesOpen = true }, modifier = Modifier.weight(1f), tint = Palette.Muted)
+        }
+    }
+    if (notesOpen) AppWhatsNewDialog(update, onDismiss = { notesOpen = false })
+}
+
+/** Popup: what changed in the new version of this app, with the download as the one main action. */
+@Composable
+private fun AppWhatsNewDialog(update: AppUpdate, onDismiss: () -> Unit) {
+    val uri = LocalUriHandler.current
+    val lines = remember(update.tag) { ReleaseNotes.changes(update.notes) }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Palette.Surface)
+                .border(1.dp, Palette.Outline, RoundedCornerShape(24.dp))
+                .padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("What's new in ${update.version}", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("You have ${BuildConfig.VERSION_NAME}.", color = Palette.Muted, fontSize = 13.sp)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Palette.Muted, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Column(
+                Modifier.fillMaxWidth().weight(1f, fill = false).clip(RoundedCornerShape(16.dp)).background(Palette.SurfaceHigh)
+                    .verticalScroll(rememberScrollState()).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (lines.isEmpty()) Text("No notes for this version.", color = Palette.Muted, fontSize = 13.sp)
+                else NoteLinesView(lines)
+            }
+            Spacer(Modifier.height(16.dp))
+            GradientButton("Download ${update.version}", enabled = true, onClick = { uri.openUri(update.downloadUrl) })
+            TextButton(onClick = { uri.openUri(update.pageUrl) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Open on GitHub", color = Palette.Muted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** Release-note lines: headings, bullets and paragraphs. */
+@Composable
+private fun NoteLinesView(lines: List<NoteLine>) {
+    for (line in lines) {
+        when (line.kind) {
+            NoteLine.Kind.HEADING -> Text(line.text, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
+            NoteLine.Kind.BULLET -> Row {
+                Text("•", color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.width(14.dp))
+                Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            NoteLine.Kind.TEXT -> Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
         }
     }
 }
@@ -852,16 +911,7 @@ private fun ReleaseNotesView(release: Release) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("What's new in ${release.tag_name}", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        for (line in shown) {
-            when (line.kind) {
-                NoteLine.Kind.HEADING -> Text(line.text, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
-                NoteLine.Kind.BULLET -> Row {
-                    Text("•", color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.width(14.dp))
-                    Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
-                }
-                NoteLine.Kind.TEXT -> Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
-            }
-        }
+        NoteLinesView(shown)
         Row {
             if (lines.size > shown.size || expanded) {
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all", color = Palette.Link) }
