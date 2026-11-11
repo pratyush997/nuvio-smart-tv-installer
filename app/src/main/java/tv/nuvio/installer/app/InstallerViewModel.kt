@@ -36,6 +36,7 @@ import tv.nuvio.installer.core.CertificateExpiredException
 import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
 import tv.nuvio.installer.core.RememberedTv
+import tv.nuvio.installer.core.SamsungSession
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
 import tv.nuvio.installer.core.SamsungTvStatus
@@ -90,6 +91,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val identityStore = IdentityStore(File(application.filesDir, "identities"))
     private val certificates = SamsungCertificates(File(application.filesDir, "samsung-ca"))
+    /** One Samsung sign-in, kept in memory for an hour, covers certificates for several TVs. */
+    private val samsungSession = SamsungSession()
 
     var tvIp by mutableStateOf(prefs.getString("tvIp", "").orEmpty())
         private set
@@ -365,6 +368,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         events = events,
         openLogin = { url -> viewModelScope.launch(Dispatchers.Main) { loginOpener?.invoke(url) } },
         loginReturnUrl = "nuvio-tizen-installer://done",
+        session = samsungSession,
     )
 
     fun reopenLogin() {
