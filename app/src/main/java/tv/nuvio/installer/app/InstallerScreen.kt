@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -116,6 +117,7 @@ import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
+import tv.nuvio.installer.core.NuvioApp
 
 // ---------------------------------------------------------------- palette
 
@@ -543,9 +545,10 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             Text("Tap Find my TV, or type the TV's IP address.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
         }
 
+        AppChoice(vm, enabled = !busy)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            InfoTile("Nuvio on TV", Modifier.weight(1f)) {
-                val installed = vm.installedLabel
+            InfoTile("On TV", Modifier.weight(1f)) {
+                val installed = vm.selectedInstalledLabel
                 Text(
                     when {
                         vm.tvState != TvState.ONLINE -> "—"
@@ -559,7 +562,7 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
         }
         (vm.source as? PackageSource.FromRelease)?.release?.let { ReleaseNotesView(it) }
 
-        val installed = vm.tvState == TvState.ONLINE && vm.installedVersion != null
+        val installed = vm.tvState == TvState.ONLINE && vm.selectedInstalled
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Open on TV", Icons.Filled.PlayArrow, enabled = !busy && installed, onClick = vm::launchOnTv, modifier = Modifier.weight(1f))
             SoftButton("Uninstall", Icons.Filled.Delete, enabled = !busy && installed, onClick = vm::uninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
@@ -568,9 +571,127 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             "Type on TV", Icons.Filled.Edit, enabled = vm.tvState == TvState.ONLINE, onClick = vm::openTypeOnTv,
             modifier = Modifier.fillMaxWidth(), tint = Palette.Link,
         )
-        if (vm.installedVersion != null) AutoUpdateRow(vm)
+        if (vm.selectedApp == NuvioApp.TV && vm.installedVersion != null) AutoUpdateRow(vm)
     }
     if (vm.typeOnTvOpen) TypeOnTvDialog(vm)
+}
+
+// ---------------------------------------------------------------- app choice
+
+/**
+ * Which app the main button installs: two cards side by side, Nuvio TV first (recommended).
+ * Picking Nuvio Legacy the first time shows who makes it before switching.
+ */
+@Composable
+private fun AppChoice(vm: InstallerViewModel, enabled: Boolean) {
+    var notice by rememberSaveable { mutableStateOf(false) }
+    val tizen = vm.tvInfo?.platformVersion
+    val legacySupported = NuvioApp.LEGACY.supports(tizen)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("APP", color = Palette.Faint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+            AppCard(
+                title = NuvioApp.TV.label,
+                lines = listOf("Official app"),
+                badge = "Recommended",
+                onTv = vm.tvInfo?.app(NuvioApp.TV) != null,
+                selected = vm.selectedApp == NuvioApp.TV,
+                enabled = enabled,
+                onClick = { vm.selectApp(NuvioApp.TV) },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
+            AppCard(
+                title = NuvioApp.LEGACY.label,
+                lines = listOf(if (legacySupported) "Community app, faster on older TVs" else "Not available for this TV"),
+                badge = null,
+                onTv = vm.tvInfo?.app(NuvioApp.LEGACY) != null,
+                selected = vm.selectedApp == NuvioApp.LEGACY,
+                enabled = enabled && legacySupported,
+                onClick = { if (vm.legacyNoticeSeen) vm.selectApp(NuvioApp.LEGACY) else notice = true },
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
+        }
+        when {
+            vm.selectedApp == NuvioApp.LEGACY -> Text(
+                "Nuvio Legacy is not made or checked by TV Installer. It comes straight from its developer's GitHub page and updates itself on the TV.",
+                color = Palette.Muted, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+            legacySupported && NuvioApp.isOlderTv(tizen) -> Text(
+                "Your TV is from 2018 to 2020. Nuvio Legacy may run smoother on it.",
+                color = Palette.Muted, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+        }
+    }
+    if (notice) {
+        LegacyNoticeDialog(
+            onContinue = { notice = false; vm.acknowledgeLegacyNotice(); vm.selectApp(NuvioApp.LEGACY) },
+            onDismiss = { notice = false },
+        )
+    }
+}
+
+@Composable
+private fun AppCard(
+    title: String,
+    lines: List<String>,
+    badge: String?,
+    onTv: Boolean,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(if (selected) Palette.Accent.copy(alpha = 0.12f) else Palette.SurfaceHigh)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Accent else Palette.Outline, shape)
+            .clickable(enabled = enabled && !selected, role = Role.RadioButton, onClick = onClick)
+            .alpha(if (enabled || selected) 1f else 0.5f)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.Link, modifier = Modifier.size(18.dp))
+        }
+        if (badge != null) Text(badge, color = Palette.Success, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        lines.forEach { Text(it, color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp) }
+        if (onTv) Text("On this TV", color = Palette.Faint, fontSize = 12.sp)
+    }
+}
+
+/** Shown once, the first time Nuvio Legacy is picked: who makes it, that nobody here checks it, and that it sits next to Nuvio TV. */
+@Composable
+private fun LegacyNoticeDialog(onContinue: () -> Unit, onDismiss: () -> Unit) {
+    val uri = LocalUriHandler.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("About Nuvio Legacy") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Nuvio Legacy is made by a community developer, not by the Nuvio team or by TV Installer.",
+                    fontSize = 14.sp, lineHeight = 20.sp,
+                )
+                Text(
+                    "TV Installer downloads it straight from the developer's GitHub page. It does not check or test those versions. " +
+                        "After the install, Nuvio Legacy updates itself on the TV.",
+                    fontSize = 14.sp, lineHeight = 20.sp,
+                )
+                Text(
+                    "It uses your same Nuvio account and add-ons, and installs next to Nuvio TV without replacing it.",
+                    fontSize = 14.sp, lineHeight = 20.sp,
+                )
+                TextButton(onClick = { uri.openUri(NuvioApp.LEGACY.repoUrl) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text("See its GitHub page", color = Palette.Muted, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onContinue) { Text("Use Nuvio Legacy", fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** The saved TVs, one row each: tap to switch, the bin asks before taking the TV off the list. */
@@ -633,7 +754,8 @@ private fun TvRow(tv: SavedTv, selected: Boolean, enabled: Boolean, onSelect: ()
                 BrandTag(tv.brand)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    tv.installedLabel?.let { "Nuvio $it" } ?: "No Nuvio yet",
+                    listOfNotNull(tv.installedLabel?.let { "Nuvio $it" }, "Nuvio Legacy".takeIf { tv.hasLegacy })
+                        .joinToString(" · ").ifEmpty { "No Nuvio yet" },
                     color = Palette.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -989,7 +1111,7 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                 DropdownMenuItem(
                     text = {
                         val tag = listOfNotNull("latest".takeIf { release == latest }, "beta".takeIf { release.prerelease }).joinToString(" · ")
-                        Text("Nuvio ${release.label}" + if (tag.isNotEmpty()) "  ($tag)" else "")
+                        Text(releaseTitle(vm.selectedApp, release) + if (tag.isNotEmpty()) "  ($tag)" else "")
                     },
                     onClick = { vm.source = PackageSource.FromRelease(release); open = false },
                 )
@@ -998,8 +1120,19 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                 DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(); open = false })
             }
             HorizontalDivider()
-            DropdownMenuItem(text = { Text("Choose a .wgt file…") }, onClick = { open = false; onPickFile() })
+            val fileKind = if (vm.selectedApp == NuvioApp.TV) ".wgt" else ".tpk or .wgt"
+            DropdownMenuItem(text = { Text("Choose a $fileKind file…") }, onClick = { open = false; onPickFile() })
         }
+    }
+}
+
+/** "Nuvio 1.3.11" for Nuvio TV; Legacy's releases are already named "Nuvio Legacy 2.0.8". */
+private fun releaseTitle(app: NuvioApp, release: Release): String {
+    val name = release.name?.takeIf { it.isNotBlank() } ?: release.tag_name
+    return when {
+        app == NuvioApp.TV -> "Nuvio $name"
+        name.startsWith(app.label, ignoreCase = true) -> name
+        else -> "${app.label} ${release.tag_name}"
     }
 }
 
@@ -1472,6 +1605,8 @@ private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit, onReport:
                 HorizontalDivider(color = Palette.Outline)
                 AboutRow("Licence", "Open source · GPL-3.0", Palette.Link) { uri.openUri("$repo/blob/main/LICENSE") }
                 HorizontalDivider(color = Palette.Outline)
+                AboutRow("Nuvio Legacy", "Community app · GitHub", Palette.Link) { uri.openUri(NuvioApp.LEGACY.repoUrl) }
+                HorizontalDivider(color = Palette.Outline)
                 when (val status = vm.appUpdateStatus) {
                     AppUpdateStatus.Checking -> AboutRow("Updates", "Checking…", Palette.Muted)
                     AppUpdateStatus.UpToDate -> AboutRow("Updates", "Up to date", Palette.Success)
@@ -1485,11 +1620,6 @@ private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit, onReport:
             GradientButton("View on GitHub", enabled = true, onClick = { uri.openUri(repo) })
             Spacer(Modifier.height(10.dp))
             SoftButton("Report a problem", null, enabled = true, onClick = onReport, modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Nuvio is made by NuvioMedia.",
-                color = Palette.Faint, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
