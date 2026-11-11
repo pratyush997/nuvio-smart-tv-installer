@@ -1090,6 +1090,9 @@ private fun NoteLinesView(lines: List<NoteLine>) {
     }
 }
 
+/** Newest versions listed in the version menu before "Older versions". */
+private const val VERSIONS_SHOWN = 5
+
 @Composable
 private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boolean, onPickFile: () -> Unit) {
     var open by remember { mutableStateOf(false) }
@@ -1105,15 +1108,33 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                 Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose version", tint = Palette.Muted)
             }
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        // Fixed width and at most VERSIONS_SHOWN rows, so the menu fits on screen without scrolling.
+        var showAll by remember { mutableStateOf(false) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false; showAll = false }, modifier = Modifier.width(280.dp)) {
             val latest = vm.latestRelease
-            vm.releases.forEach { release ->
+            val selected = (vm.source as? PackageSource.FromRelease)?.release
+            val all = vm.releases
+            val shown = if (showAll) all else all.take(VERSIONS_SHOWN)
+            shown.forEach { release ->
                 DropdownMenuItem(
                     text = {
-                        val tag = listOfNotNull("latest".takeIf { release == latest }, "beta".takeIf { release.prerelease }).joinToString(" · ")
-                        Text(releaseTitle(vm.selectedApp, release) + if (tag.isNotEmpty()) "  ($tag)" else "")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(releaseTitle(vm.selectedApp, release), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            val tag = listOfNotNull("latest".takeIf { release == latest }, "beta".takeIf { release.prerelease }).joinToString(" · ")
+                            if (tag.isNotEmpty()) Text("  $tag", color = Palette.Muted, fontSize = 12.sp, maxLines = 1)
+                        }
                     },
-                    onClick = { vm.source = PackageSource.FromRelease(release); open = false },
+                    trailingIcon = {
+                        if (release == selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.Text, modifier = Modifier.size(20.dp))
+                    },
+                    onClick = { vm.source = PackageSource.FromRelease(release); open = false; showAll = false },
+                )
+            }
+            if (!showAll && all.size > VERSIONS_SHOWN) {
+                DropdownMenuItem(
+                    text = { Text("Older versions", color = Palette.Muted) },
+                    trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = Palette.Muted) },
+                    onClick = { showAll = true },
                 )
             }
             if (vm.releasesError != null) {
@@ -1121,7 +1142,7 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
             }
             HorizontalDivider()
             val fileKind = if (vm.selectedApp == NuvioApp.TV) ".wgt" else ".tpk or .wgt"
-            DropdownMenuItem(text = { Text("Choose a $fileKind file…") }, onClick = { open = false; onPickFile() })
+            DropdownMenuItem(text = { Text("Choose a $fileKind file…") }, onClick = { open = false; showAll = false; onPickFile() })
         }
     }
 }
