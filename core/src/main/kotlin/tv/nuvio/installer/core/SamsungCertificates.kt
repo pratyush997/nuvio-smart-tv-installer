@@ -118,6 +118,13 @@ class SamsungCertificates(private val caDirectory: File) {
 
     private fun ca(name: String) = parseCertificate(File(caDirectory, name).readBytes())
 
+    /** Samsung's CA certificates (downloaded first if needed), to complete imported certificate files. */
+    fun authorities(events: InstallerEvents): List<X509Certificate> {
+        ensureAuthorities(events)
+        return caDirectory.listFiles { f -> f.name.endsWith(".crt", true) || f.name.endsWith(".cer", true) }.orEmpty()
+            .mapNotNull { runCatching { parseCertificate(it.readBytes()) }.getOrNull() }
+    }
+
     /** Requests a new author + distributor certificate pair for the TV with [duid]. */
     fun createIdentity(access: SamsungAccess, duid: String, events: InstallerEvents): SigningIdentity {
         if (access.accessToken.isBlank() || access.userId.isBlank()) {

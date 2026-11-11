@@ -94,6 +94,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import tv.nuvio.installer.core.TizenStudioCertificate
 import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.CheckState
 import tv.nuvio.installer.core.ExpiryState
@@ -136,7 +137,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
     }
 
     val pickWgt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::selectFile) }
-    val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importIdentities) }
+    val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.importIdentities(uris) }
     val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         uri?.let(vm::exportIdentities)
     }
@@ -144,9 +145,20 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
     var aboutOpen by rememberSaveable { mutableStateOf(false) }
     if (aboutOpen) AboutDialog(vm, onDismiss = { aboutOpen = false })
     vm.importPasswordRequest?.let { request ->
+        val (title, message) = when (request) {
+            is ImportPasswordRequest.Backup -> "Backup password" to
+                if (request.wrongPassword) "That password did not open the backup. Try again." else "This backup is protected. Type its password."
+            is ImportPasswordRequest.TizenStudio -> when {
+                request.part == TizenStudioCertificate.Part.DISTRIBUTOR -> "Distributor password" to
+                    if (request.wrongPassword) "That password did not open distributor.p12. Try again."
+                    else "The author password does not open distributor.p12. Type the distributor certificate's password."
+                request.wrongPassword -> "Certificate password" to "That password did not open author.p12. Try again."
+                else -> "Certificate password" to "Type the password you chose for this certificate profile in Tizen Studio."
+            }
+        }
         PasswordDialog(
-            title = "Backup password",
-            message = if (request.wrongPassword) "That password did not open the backup. Try again." else "This backup is protected. Type its password.",
+            title = title,
+            message = message,
             confirmLabel = "Import",
             needsConfirmation = false,
             onDone = vm::answerImportPassword,

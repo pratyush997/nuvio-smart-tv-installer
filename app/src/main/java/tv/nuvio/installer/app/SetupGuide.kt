@@ -297,6 +297,16 @@ private fun SamsungAccountStep(vm: InstallerViewModel, onImport: () -> Unit) {
             )
             SoftButton("Import certificate", null, enabled = vm.busy == null, onClick = onImport)
         }
+        Panel {
+            SectionTitle("Rather not sign in on this phone?")
+            Text(
+                "Create a Samsung certificate in Tizen Studio's Certificate Manager on a computer, with your TV's DUID" +
+                    (vm.tvInfo?.duid?.let { " ($it)" } ?: "") + ". Copy author.p12 and distributor.p12 from its profile folder " +
+                    "to this phone, tap Import and select both files. The Samsung sign-in then happens in Tizen Studio, not here.",
+                color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+            SoftButton("Import Tizen Studio files", null, enabled = vm.busy == null, onClick = onImport)
+        }
     }
     Note("You get a notification when a new Nuvio version is out. Tap it to update the TV.")
 }
