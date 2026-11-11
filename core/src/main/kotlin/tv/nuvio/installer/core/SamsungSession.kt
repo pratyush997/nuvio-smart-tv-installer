@@ -29,6 +29,10 @@ class SamsungSession(
         return access
     }
 
+    /** When the remembered sign-in stops being used, or null when there is none. */
+    @Synchronized
+    fun expiresAt(): Instant? = if (current() != null) signedInAt?.plus(maxAge) else null
+
     @Synchronized
     fun remember(value: SamsungAccess) {
         access = value
