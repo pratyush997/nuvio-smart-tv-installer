@@ -22,7 +22,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import tv.nuvio.installer.core.BackupPasswordException
 import tv.nuvio.installer.core.FoundTv
+import tv.nuvio.installer.core.IdentityBackup
 import tv.nuvio.installer.core.GitHubReleases
 import tv.nuvio.installer.core.IdentityStore
 import tv.nuvio.installer.core.InstallStage
@@ -42,14 +44,10 @@ import tv.nuvio.installer.core.TvInfo
 import tv.nuvio.installer.core.TvNetwork
 import tv.nuvio.installer.core.downloadFile
 import java.io.File
-import java.io.OutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.security.MessageDigest
 import java.time.Instant
-import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
-import java.util.zip.ZipOutputStream
 
 data class LogLine(val level: LogLevel, val text: String)
 
@@ -77,7 +75,10 @@ data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: Str
 const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
-const val BACKUP_FILE_NAME = "nuvio-tizen-certificates.zip"
+private const val PREF_BACKUP_PASSWORD = "backupPassword"
+
+/** A protected backup was picked for import; the UI asks for its password. */
+class ImportPasswordRequest(val bytes: ByteArray, val wrongPassword: Boolean)
 const val PREF_APP_NOTIFIED_TAG = "appNotifiedTag"
 const val PREF_TV_ID = "tvId"
 const val PREF_TV_NAME = "tvName"
@@ -107,6 +108,17 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var lastBackup by mutableStateOf(prefs.getString("lastBackup", null))
         private set
+    /**
+     * Backups are encrypted with this password when set. It is kept in the app's private storage
+     * so automatic backups need no typing; the file in Downloads is what it protects.
+     */
+    private var backupPassword: String? = prefs.getString(PREF_BACKUP_PASSWORD, null)?.takeIf { it.isNotEmpty() }
+    var backupProtected by mutableStateOf(backupPassword != null)
+        private set
+    var importPasswordRequest by mutableStateOf<ImportPasswordRequest?>(null)
+        private set
+    val backupFileName: String
+        get() = if (backupProtected) IdentityBackup.ENCRYPTED_FILE_NAME else IdentityBackup.FILE_NAME
     private var pendingUpdate = false
     /** A newer version of this app on GitHub, or null. */
     var appUpdate by mutableStateOf<AppUpdate?>(null)
@@ -540,13 +552,14 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) runCatching {
             val resolver = getApplication<Application>().contentResolver
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_FILE_NAME)
-                put(MediaStore.Downloads.MIME_TYPE, "application/zip")
+                put(MediaStore.Downloads.DISPLAY_NAME, backupFileName)
+                put(MediaStore.Downloads.MIME_TYPE, if (backupProtected) "application/octet-stream" else "application/zip")
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: throw InstallerException("Downloads is not available.")
             try {
-                resolver.openOutputStream(uri)?.use { writeBackup(it) } ?: throw InstallerException("Could not write the backup file.")
+                resolver.openOutputStream(uri)?.use { IdentityBackup.write(identityStore, it, backupPassword) }
+                    ?: throw InstallerException("Could not write the backup file.")
                 resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             } catch (e: Exception) {
                 runCatching { resolver.delete(uri, null, null) }
@@ -554,7 +567,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }.isSuccess else false
         return if (saved) {
-            val where = "Downloads/$BACKUP_FILE_NAME"
+            val where = "Downloads/$backupFileName"
             prefs.edit().putString("lastBackup", where).apply()
             withContext(Dispatchers.Main) { lastBackup = where }
             events.log(LogLevel.SUCCESS, "Certificate backup saved to $where.")
@@ -564,18 +577,6 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             events.log(LogLevel.INFO, "Choose where to save the certificate backup.")
             "\n\nSave the certificate backup when asked: updates need it."
         }
-    }
-
-    private fun writeBackup(out: OutputStream): Int {
-        val files = identityStore.all()
-        ZipOutputStream(out).use { zip ->
-            for ((file, _) in files) {
-                zip.putNextEntry(ZipEntry(file.name))
-                zip.write(file.readBytes())
-                zip.closeEntry()
-            }
-        }
-        return files.size
     }
 
     fun launchOnTv() = run("Launch") {
@@ -647,54 +648,80 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         source = PackageSource.FromFile(uri, name)
     }
 
-    /** Imports a desktop-installer certificate .json, or a backup .zip made by this app. */
+    /**
+     * Imports a desktop-installer certificate .json, or a backup made by this app. A protected
+     * backup is tried with this phone's backup password first, then the user is asked for it.
+     */
     fun importIdentities(uri: Uri) {
         viewModelScope.launch {
-            try {
-                val count = withContext(Dispatchers.IO) {
-                    val bytes = getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            val bytes = try {
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: throw InstallerException("Could not read the selected file.")
-                    if (bytes.size >= 2 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
-                        var n = 0
-                        ZipInputStream(bytes.inputStream()).use { zip ->
-                            while (true) {
-                                val entry = zip.nextEntry ?: break
-                                if (entry.name.endsWith(".json")) {
-                                    runCatching { identityStore.import(String(zip.readBytes())) }.onSuccess { n++ }
-                                }
-                            }
-                        }
-                        if (n == 0) throw InstallerException("The backup did not contain any certificates.")
-                        n
-                    } else {
-                        identityStore.import(String(bytes))
-                        1
-                    }
                 }
-                refreshIdentities()
-                outcome = Outcome(
-                    OutcomeKind.SUCCESS, "Certificate imported",
-                    "Imported $count certificate${if (count == 1) "" else "s"}. You can install or update now."
-                )
-                log.add(LogLine(LogLevel.SUCCESS, "Imported $count certificate file(s)."))
             } catch (e: Exception) {
                 outcome = Outcome(OutcomeKind.ERROR, "Import failed", e.message ?: "Import failed.")
+                return@launch
             }
+            importBackup(bytes, backupPassword, askOnWrongPassword = false)
         }
     }
 
-    /** Writes all saved certificates to a .zip backup. */
+    /** Called from the password prompt; null cancels. */
+    fun answerImportPassword(password: String?) {
+        val request = importPasswordRequest ?: return
+        importPasswordRequest = null
+        if (password == null) return
+        viewModelScope.launch { importBackup(request.bytes, password, askOnWrongPassword = true) }
+    }
+
+    private suspend fun importBackup(bytes: ByteArray, password: String?, askOnWrongPassword: Boolean) {
+        try {
+            val count = withContext(Dispatchers.IO) { IdentityBackup.import(identityStore, bytes, password) }
+            refreshIdentities()
+            outcome = Outcome(
+                OutcomeKind.SUCCESS, "Certificate imported",
+                "Imported $count certificate${if (count == 1) "" else "s"}. You can install or update now."
+            )
+            log.add(LogLine(LogLevel.SUCCESS, "Imported $count certificate file(s)."))
+        } catch (e: BackupPasswordException) {
+            // The saved password did not open it (a backup from another phone): ask without calling it wrong.
+            importPasswordRequest = ImportPasswordRequest(bytes, wrongPassword = e.wrongPassword && askOnWrongPassword)
+        } catch (e: Exception) {
+            outcome = Outcome(OutcomeKind.ERROR, "Import failed", e.message ?: "Import failed.")
+        }
+    }
+
+    /** Sets (or with null, removes) the password that protects backups. */
+    fun setBackupPassword(password: String?) {
+        backupPassword = password?.takeIf { it.isNotEmpty() }
+        prefs.edit().putString(PREF_BACKUP_PASSWORD, backupPassword).apply()
+        backupProtected = backupPassword != null
+        outcome = Outcome(
+            OutcomeKind.SUCCESS,
+            if (backupProtected) "Backups are protected" else "Backup password removed",
+            if (backupProtected) {
+                "New backups need this password to open. Tap Back up to save a protected copy now, then delete older unprotected " +
+                    "backups (${IdentityBackup.FILE_NAME}) from Downloads. If you forget the password, the backup cannot be opened."
+            } else {
+                "New backups are plain .zip files again. Anyone with the file can use your TV's certificate, so keep it private."
+            },
+        )
+    }
+
+    /** Writes all saved certificates to a backup file the user chose. */
     fun exportIdentities(uri: Uri) {
         viewModelScope.launch {
             try {
                 val count = withContext(Dispatchers.IO) {
                     if (identityStore.all().isEmpty()) throw InstallerException("There are no certificates to back up yet.")
-                    getApplication<Application>().contentResolver.openOutputStream(uri)?.use { writeBackup(it) }
+                    getApplication<Application>().contentResolver.openOutputStream(uri)?.use { IdentityBackup.write(identityStore, it, backupPassword) }
                         ?: throw InstallerException("Could not write the backup file.")
                 }
                 lastBackup = "the file you chose"
                 prefs.edit().putString("lastBackup", lastBackup).apply()
-                outcome = Outcome(OutcomeKind.SUCCESS, "Backup saved", "Saved $count certificate file(s). Keep it safe: updates need it.")
+                val protectedNote = if (backupProtected) " It is protected with your backup password." else ""
+                outcome = Outcome(OutcomeKind.SUCCESS, "Backup saved", "Saved $count certificate file(s).$protectedNote Keep it safe: updates need it.")
             } catch (e: Exception) {
                 outcome = Outcome(OutcomeKind.ERROR, "Backup failed", e.message ?: "Backup failed.")
             }
