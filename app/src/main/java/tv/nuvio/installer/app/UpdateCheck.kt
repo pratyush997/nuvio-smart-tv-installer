@@ -20,9 +20,16 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import android.net.Uri
+import tv.nuvio.installer.core.CertificateExpiry
+import tv.nuvio.installer.core.ExpiryState
 import tv.nuvio.installer.core.GitHubReleases
+import tv.nuvio.installer.core.IdentityStore
 import tv.nuvio.installer.core.TizenInstaller
+import java.io.File
+import java.time.Instant
 import java.util.concurrent.TimeUnit
+
+private const val PREF_CERT_NOTIFIED = "certNotified"
 
 /** A newer release of this app. [downloadUrl] is the APK itself when the release has one. */
 data class AppUpdate(val tag: String, val version: String, val downloadUrl: String, val pageUrl: String)
@@ -46,7 +53,26 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
         val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val nuvio = runCatching { checkNuvio(prefs) }
         val app = runCatching { checkApp(prefs) }
+        runCatching { checkCertificates(prefs) }
         return if (nuvio.isFailure || app.isFailure) Result.retry() else Result.success()
+    }
+
+    /** Warns once when a saved certificate is about to expire, and once more when it has expired. */
+    private fun checkCertificates(prefs: android.content.SharedPreferences) {
+        val store = IdentityStore(File(applicationContext.filesDir, "identities"))
+        val notified = prefs.getStringSet(PREF_CERT_NOTIFIED, emptySet()).orEmpty()
+        for ((_, identity) in store.all()) {
+            if (!identity.isUsable) continue
+            val expiresAt = identity.expiresAt() ?: continue
+            val state = CertificateExpiry.state(expiresAt)
+            if (state == ExpiryState.VALID) continue
+            val key = "${identity.fingerprint}:$state"
+            if (key in notified) continue
+            if (UpdateCheck.notifyCertificate(applicationContext, expiresAt, state == ExpiryState.EXPIRED)) {
+                prefs.edit().putStringSet(PREF_CERT_NOTIFIED, notified + key).apply()
+            }
+            return
+        }
     }
 
     private fun checkNuvio(prefs: android.content.SharedPreferences) {
@@ -75,6 +101,7 @@ object UpdateCheck {
     private const val CHANNEL = "updates"
     private const val NOTIFICATION_ID = 1
     private const val APP_NOTIFICATION_ID = 2
+    private const val CERT_NOTIFICATION_ID = 3
 
     /** The newest release of this app when it is newer than the running one. Throws on network errors. */
     fun newerApp(current: String = BuildConfig.VERSION_NAME): AppUpdate? {
@@ -137,6 +164,27 @@ object UpdateCheck {
             .setAutoCancel(true)
             .build()
         manager.notify(NOTIFICATION_ID, notification)
+        return true
+    }
+
+    fun notifyCertificate(context: Context, expiresAt: Instant, expired: Boolean): Boolean {
+        if (!canNotify(context)) return false
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val open = PendingIntent.getActivity(
+            context, 2,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val date = formatDate(expiresAt)
+        val notification = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_update)
+            .setContentTitle(if (expired) "Your TV's certificate expired on $date" else "Your TV's certificate expires on $date")
+            .setContentText("Tap to see what this means for Nuvio updates.")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(CERT_NOTIFICATION_ID, notification)
         return true
     }
 

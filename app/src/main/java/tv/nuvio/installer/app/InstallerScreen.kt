@@ -94,7 +94,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import tv.nuvio.installer.core.TizenStudioCertificate
+import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.CheckState
+import tv.nuvio.installer.core.ExpiryState
 import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
@@ -134,19 +137,39 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
     }
 
     val pickWgt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::selectFile) }
-    val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importIdentities) }
-    val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+    val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.importIdentities(uris) }
+    val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         uri?.let(vm::exportIdentities)
     }
     var logOpen by rememberSaveable { mutableStateOf(false) }
     var aboutOpen by rememberSaveable { mutableStateOf(false) }
     if (aboutOpen) AboutDialog(vm, onDismiss = { aboutOpen = false })
+    vm.importPasswordRequest?.let { request ->
+        val (title, message) = when (request) {
+            is ImportPasswordRequest.Backup -> "Backup password" to
+                if (request.wrongPassword) "That password did not open the backup. Try again." else "This backup is protected. Type its password."
+            is ImportPasswordRequest.TizenStudio -> when {
+                request.part == TizenStudioCertificate.Part.DISTRIBUTOR -> "Distributor password" to
+                    if (request.wrongPassword) "That password did not open distributor.p12. Try again."
+                    else "The author password does not open distributor.p12. Type the distributor certificate's password."
+                request.wrongPassword -> "Certificate password" to "That password did not open author.p12. Try again."
+                else -> "Certificate password" to "Type the password you chose for this certificate profile in Tizen Studio."
+            }
+        }
+        PasswordDialog(
+            title = title,
+            message = message,
+            confirmLabel = "Import",
+            needsConfirmation = false,
+            onDone = vm::answerImportPassword,
+        )
+    }
 
     // The automatic certificate backup could not write to Downloads: open the save dialog instead.
     LaunchedEffect(vm.backupRequest) {
         if (vm.backupRequest) {
             vm.backupRequestHandled()
-            exportCert.launch(BACKUP_FILE_NAME)
+            exportCert.launch(vm.backupFileName)
         }
     }
     // Once Nuvio is on the TV, ask (once) for permission to announce new versions.
@@ -194,7 +217,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     vm,
                     enabled = !busy,
                     onImport = { importCert.launch(arrayOf("*/*")) },
-                    onBackup = { exportCert.launch(BACKUP_FILE_NAME) },
+                    onBackup = { exportCert.launch(vm.backupFileName) },
                     onSignIn = vm::createCertificate,
                 )
                 LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
@@ -873,6 +896,7 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             Spacer(Modifier.width(10.dp))
             Text(text, color = Palette.Text, fontSize = 14.sp)
         }
+        CertificateExpiryNote(vm.certExpiresAt, forThisTv = vm.hasIdentityForTv)
         if (vm.hasIdentityForTv) {
             Text(
                 "Installs and updates use this certificate, so no sign-in is needed. Keep the backup: without it, the TV refuses updates.",
@@ -901,8 +925,123 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             SoftButton("Import", null, enabled = enabled, onClick = onImport, modifier = Modifier.weight(1f))
             SoftButton("Back up", null, enabled = enabled && vm.identityCount > 0, onClick = onBackup, modifier = Modifier.weight(1f))
         }
+        BackupProtection(vm, enabled)
     }
 }
+
+/** Password protection for backups: the backup file holds the certificate's private keys. */
+@Composable
+private fun BackupProtection(vm: InstallerViewModel, enabled: Boolean) {
+    var editing by remember { mutableStateOf(false) }
+    if (editing) {
+        PasswordDialog(
+            title = "Protect backups",
+            message = "Backups hold your TV certificate's private keys. With a password, the file is useless to anyone without it. " +
+                "Write the password down: if you forget it, the backup cannot be opened.",
+            confirmLabel = "Protect",
+            needsConfirmation = true,
+            onDone = { password -> editing = false; if (password != null) vm.setBackupPassword(password) },
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.Lock, contentDescription = null, tint = if (vm.backupProtected) Palette.Success else Palette.Faint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (vm.backupProtected) "Backups are password-protected" else "Backups are not password-protected",
+            color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f),
+        )
+        if (vm.backupProtected) {
+            TextButton(onClick = { vm.setBackupPassword(null) }, enabled = enabled) { Text("Remove", color = Palette.Muted) }
+        } else {
+            TextButton(onClick = { editing = true }, enabled = enabled) { Text("Add password", color = Palette.Link) }
+        }
+    }
+}
+
+/** Asks for a password (twice when [needsConfirmation]). [onDone] gets null on cancel. */
+@Composable
+internal fun PasswordDialog(title: String, message: String, confirmLabel: String, needsConfirmation: Boolean, onDone: (String?) -> Unit) {
+    var password by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    val tooShort = needsConfirmation && password.length < 6
+    val mismatch = needsConfirmation && again != password
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(message, fontSize = 13.sp, lineHeight = 18.sp)
+                OutlinedTextField(
+                    value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+                if (needsConfirmation) {
+                    OutlinedTextField(
+                        value = again, onValueChange = { again = it }, label = { Text("Password again") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        isError = again.isNotEmpty() && mismatch,
+                    )
+                    Text(
+                        when {
+                            tooShort -> "At least 6 characters."
+                            again.isNotEmpty() && mismatch -> "The passwords do not match."
+                            else -> " "
+                        },
+                        color = Palette.Muted, fontSize = 12.sp,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onDone(password) }, enabled = password.isNotEmpty() && !tooShort && !mismatch) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
+    )
+}
+
+/** "Valid until …", or a warning when the certificate expires within 30 days or has expired. */
+@Composable
+private fun CertificateExpiryNote(expiresAt: java.time.Instant?, forThisTv: Boolean) {
+    expiresAt ?: return
+    val date = formatDate(expiresAt)
+    when (CertificateExpiry.state(expiresAt)) {
+        ExpiryState.VALID -> if (forThisTv) Text("Valid until $date", color = Palette.Faint, fontSize = 12.sp)
+        ExpiryState.EXPIRES_SOON -> WarningBox(
+            "Certificate expires on $date",
+            "After that date the TV may refuse Nuvio updates signed with it. Updating then means uninstalling Nuvio from the TV " +
+                "and installing it again, which creates a new certificate. Nuvio's settings on the TV are lost when it is uninstalled.",
+        )
+        ExpiryState.EXPIRED -> WarningBox(
+            "Certificate expired on $date",
+            "The TV refuses Nuvio updates signed with an expired certificate. To update, uninstall Nuvio from the TV, then install it " +
+                "again: a new certificate is created during the install. Nuvio's settings on the TV are lost when it is uninstalled.",
+        )
+    }
+}
+
+@Composable
+internal fun WarningBox(title: String, text: String) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(Palette.Warning.copy(alpha = 0.08f))
+            .border(1.dp, Palette.Warning.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = Palette.Warning, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(title, color = Palette.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(text, color = Palette.Text, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+internal fun formatDate(instant: java.time.Instant): String =
+    java.time.format.DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM)
+        .withZone(java.time.ZoneId.systemDefault()).format(instant)
 
 /** Popup: the app, who made it, its licence and update status, and links to the code and to report a problem. */
 @Composable
