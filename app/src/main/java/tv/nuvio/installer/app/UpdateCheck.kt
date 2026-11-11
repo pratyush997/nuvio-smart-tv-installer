@@ -50,8 +50,8 @@ object TvAccess {
     fun release() = semaphore.release()
 }
 
-/** A newer release of this app. [downloadUrl] is the APK itself when the release has one. */
-data class AppUpdate(val tag: String, val version: String, val downloadUrl: String, val pageUrl: String)
+/** A newer release of this app. [downloadUrl] is the APK itself when the release has one; [notes] is the release body (Markdown). */
+data class AppUpdate(val tag: String, val version: String, val downloadUrl: String, val pageUrl: String, val notes: String? = null)
 
 sealed interface AppUpdateStatus {
     data object Checking : AppUpdateStatus
@@ -192,7 +192,7 @@ object UpdateCheck {
         val latest = GitHubReleases(APP_REPO).latest() ?: return null
         if (TizenInstaller.compareVersions(current, latest.tag_name) != -1) return null
         val page = latest.html_url.ifBlank { "https://github.com/$APP_REPO/releases/latest" }
-        return AppUpdate(latest.tag_name, latest.tag_name.removePrefix("v"), latest.apkAsset?.browser_download_url ?: page, page)
+        return AppUpdate(latest.tag_name, latest.tag_name.removePrefix("v"), latest.apkAsset?.browser_download_url ?: page, page, latest.body)
     }
 
     fun notifyApp(context: Context, update: AppUpdate): Boolean {
