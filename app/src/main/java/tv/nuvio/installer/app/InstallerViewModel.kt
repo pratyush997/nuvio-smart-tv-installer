@@ -23,6 +23,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tv.nuvio.installer.core.BackupPasswordException
+import tv.nuvio.installer.core.BugReport
+import tv.nuvio.installer.core.BugReportInfo
 import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.IdentityBackup
 import tv.nuvio.installer.core.GitHubReleases
@@ -884,6 +886,31 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 outcome = Outcome(OutcomeKind.ERROR, "Backup failed", e.message ?: "Backup failed.")
             }
         }
+    }
+
+    /**
+     * A bug report with the setup and the newest activity log lines, with TV IDs, tokens and
+     * e-mail addresses taken out. The user sees it before anything is sent.
+     */
+    fun bugReport(): Pair<String, String> {
+        val tv = listOfNotNull(
+            prefs.getString(PREF_TV_MODEL, null)?.takeIf { it.isNotBlank() },
+            tvInfo?.platformVersion?.takeIf { it.isNotBlank() }?.let { "Tizen $it" },
+        ).joinToString(", ")
+        val info = BugReportInfo(
+            appVersion = BuildConfig.VERSION_NAME,
+            phone = "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}",
+            tv = tv,
+            nuvioOnTv = installedVersion.orEmpty(),
+        )
+        val secrets = buildList {
+            identityStore.all().forEach { add(it.second.duid) }
+            tvInfo?.duid?.let(::add)
+            prefs.getString(PREF_TV_DUID, null)?.let(::add)
+            prefs.all.filterKeys { it.startsWith("remoteToken:") }.values.forEach { (it as? String)?.let(::add) }
+        }.filter { it.isNotBlank() }.distinct()
+        val lines = log.takeLast(300).map { BugReport.redact("[${it.level.name.lowercase()}] ${it.text}", secrets) }
+        return BugReport.text(info, lines) to BugReport.issueUrl(UpdateCheck.APP_REPO, info, lines)
     }
 
     fun logText(): String = log.joinToString("\n") { "[${it.level.name.lowercase()}] ${it.text}" }
