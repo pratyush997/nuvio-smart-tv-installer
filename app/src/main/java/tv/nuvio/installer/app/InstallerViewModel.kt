@@ -112,8 +112,11 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val identityStore = IdentityStore(File(application.filesDir, "identities"))
     private val certificates = SamsungCertificates(File(application.filesDir, "samsung-ca"))
-    /** One Samsung sign-in, kept in memory for an hour, covers certificates for several TVs. */
-    private val samsungSession = SamsungSession()
+    /**
+     * One Samsung sign-in covers certificates for several TVs. It is saved encrypted on this phone
+     * for as long as Samsung says the token is valid, so closing the app does not lose it.
+     */
+    private val samsungSession = SamsungSession(store = KeystoreSignInStore(application))
 
     /** The "Type on TV" dialog is open. */
     var typeOnTvOpen by mutableStateOf(false)
