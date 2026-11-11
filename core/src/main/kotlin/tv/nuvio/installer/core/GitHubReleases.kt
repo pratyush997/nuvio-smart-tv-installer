@@ -47,14 +47,19 @@ class GitHubReleases(private val repo: String = "NuvioMedia/NuvioTVSmart") {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Recent non-draft releases that contain a Samsung .wgt asset, newest first. */
-    fun recent(limit: Int = 5): List<Release> {
+    /** Recent releases that [keep] accepts (by default: non-draft with a Samsung .wgt), newest first. */
+    fun recent(limit: Int = 5, keep: (Release) -> Boolean = { !it.draft && it.wgtAsset != null }): List<Release> {
         val text = Http.getText(
-            "https://api.github.com/repos/$repo/releases?per_page=20",
+            "https://api.github.com/repos/$repo/releases?per_page=30",
             mapOf("Accept" to "application/vnd.github+json")
         )
         return json.decodeFromString<List<Release>>(text)
-            .filter { !it.draft && it.wgtAsset != null }
+            .filter(keep)
             .take(limit)
+    }
+
+    companion object {
+        /** Recent releases of [app] that have a Samsung package for it. */
+        fun of(app: NuvioApp, limit: Int = 5): List<Release> = GitHubReleases(app.repo).recent(limit, app::offers)
     }
 }

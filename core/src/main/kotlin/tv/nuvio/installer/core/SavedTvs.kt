@@ -19,7 +19,11 @@ enum class TvBrand(val label: String) { SAMSUNG("Samsung"), LG("LG") }
  *
  * [installedTag] and [installedBeta] are the GitHub release this app last installed on the TV.
  * The TV itself only reports numbers ("1.4.0" for "1.4.0-beta.2"), so this is how the app knows
- * a beta is on it. Null after installing from a file.
+ * a beta is on it. Null after installing from a file. These fields are all about Nuvio TV.
+ *
+ * [app] is the app chosen for this TV in the app picker; null means never chosen (Nuvio TV).
+ * [hasLegacy] is whether Nuvio Legacy was on the TV at the last check. Legacy updates itself, so
+ * its version is not kept.
  */
 @Serializable
 data class SavedTv(
@@ -32,7 +36,12 @@ data class SavedTv(
     val brand: TvBrand = TvBrand.SAMSUNG,
     val installedTag: String? = null,
     val installedBeta: Boolean = false,
+    val app: NuvioApp? = null,
+    val hasLegacy: Boolean = false,
 ) {
+    /** The app the picker shows for this TV. */
+    val chosenApp: NuvioApp get() = app ?: NuvioApp.TV
+
     /**
      * True while the TV runs a beta this app installed. When the TV reports another number,
      * Nuvio was installed some other way and the TV counts as being on a full release.
@@ -85,8 +94,8 @@ object SavedTvs {
     /**
      * Adds [tv], or replaces the entry for the same TV (keeping its place in the list). Fields
      * [tv] does not know (blank or null id, name, model, DUID, installed release) are kept from
-     * the old entry; [installedVersion] always comes from [tv]. Another entry left at the same
-     * address is dropped: that address now belongs to [tv].
+     * the old entry, and so is a null [SavedTv.app]; [installedVersion] and [SavedTv.hasLegacy] always come from [tv]. Another entry left at the same address is
+     * dropped: that address now belongs to [tv].
      */
     fun upsert(tvs: List<SavedTv>, tv: SavedTv): List<SavedTv> {
         val index = tvs.indexOfFirst { sameTv(it, tv) }
@@ -99,6 +108,7 @@ object SavedTvs {
                 duid = tv.duid?.takeIf { it.isNotBlank() } ?: old.duid,
                 installedTag = tv.installedTag ?: old.installedTag,
                 installedBeta = if (tv.installedTag != null) tv.installedBeta else old.installedBeta,
+                app = tv.app ?: old.app,
             )
         }
         val result = ArrayList<SavedTv>(tvs.size + 1)

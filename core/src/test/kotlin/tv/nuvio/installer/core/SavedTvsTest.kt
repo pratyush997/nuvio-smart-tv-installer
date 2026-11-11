@@ -91,4 +91,14 @@ class SavedTvsTest {
         assertEquals(listOf(bedroom), SavedTvs.remove(listOf(living, bedroom), living.copy(ip = "1.1.1.1")))
     }
 
+    @Test
+    fun theChosenAppSurvivesARecheckAndLegacyComesFromIt() {
+        val chosen = living.copy(app = NuvioApp.LEGACY, hasLegacy = true)
+        // A check that knows nothing about the choice keeps it; what is installed is always the check's.
+        val checked = SavedTvs.upsert(listOf(chosen), SavedTv(living.ip, id = "uuid-1", hasLegacy = false)).single()
+        assertEquals(NuvioApp.LEGACY, checked.chosenApp)
+        assertFalse(checked.hasLegacy)
+        assertEquals(NuvioApp.TV, SavedTv("10.0.0.5").chosenApp)
+        assertEquals(listOf(chosen), SavedTvs.decode(SavedTvs.encode(listOf(chosen))))
+    }
 }
