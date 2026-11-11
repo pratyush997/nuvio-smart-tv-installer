@@ -6,6 +6,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Added
 - **Find my TV**: scans the phone's Wi-Fi for Samsung TVs and lists each one with its name, model and whether it is ready (Developer Mode on, Host PC IP set to this phone). Tap a TV to use it. On first start, a single TV found is selected automatically.
+- The app remembers your TV. When the router gives the TV a new IP, the check finds it again on the network and switches to the new address by itself.
 
 ## [1.3.1] - 2026-11-10
 

@@ -76,6 +76,45 @@ class TvDiscoveryTest {
     }
 
     @Test
+    fun parseStatusReadsTheTvIdentity() {
+        // Shape of a 2020+ TV: id inside "device", also repeated at the top level.
+        val full = TvNetwork.parseStatus(
+            """{"device":{"id":"uuid:aaaa-1111","duid":"uuid:aaaa-1111","wifiMac":"8c:ea:48:00:00:01","name":"Living Room","modelName":"QA55Q60"},"id":"uuid:aaaa-1111"}"""
+        )
+        assertEquals("uuid:aaaa-1111", full?.id)
+        assertEquals("uuid:bbbb", TvNetwork.parseStatus("""{"device":{"name":"TV"},"id":"uuid:bbbb"}""")?.id)
+        assertEquals("uuid:cccc", TvNetwork.parseStatus("""{"device":{"duid":"uuid:cccc","name":"TV"}}""")?.id)
+        assertEquals("8c:ea:48:00:00:02", TvNetwork.parseStatus("""{"device":{"wifiMac":"8c:ea:48:00:00:02","name":"TV"}}""")?.id)
+        assertNull(TvNetwork.parseStatus("""{"device":{"name":"TV"}}""")?.id)
+    }
+
+    @Test
+    fun rememberedTvIsFoundAgainAfterAnIpChange() {
+        val bedroom = FoundTv("192.168.1.30", livingRoom.copy(name = "Bedroom", id = "uuid:bed"))
+        val living = FoundTv("192.168.1.42", livingRoom.copy(id = "uuid:living"))
+        val found = listOf(bedroom, living)
+
+        assertEquals(living, TvDiscovery.findRemembered(RememberedTv("uuid:living", "Living Room", "QA55Q60"), found))
+        // The id wins over the name: a renamed TV is still found.
+        assertEquals(living, TvDiscovery.findRemembered(RememberedTv("uuid:living", "Old name", "QA55Q60"), found))
+        // Known id that is not on the network: not matched to another TV with the same name.
+        assertNull(TvDiscovery.findRemembered(RememberedTv("uuid:gone", "Living Room", "QA55Q60"), found))
+        assertNull(TvDiscovery.findRemembered(RememberedTv(null, "", ""), found))
+    }
+
+    @Test
+    fun tvsWithoutIdAreMatchedByNameAndModelOnlyWhenUnique() {
+        val a = FoundTv("192.168.1.30", livingRoom)
+        val b = FoundTv("192.168.1.31", livingRoom.copy(model = "UA43"))
+        assertEquals(a, TvDiscovery.findRemembered(RememberedTv(null, "Living Room", "QA55Q60"), listOf(a, b)))
+        // Remembered with an id, now reporting none (older firmware): name and model still match.
+        assertEquals(a, TvDiscovery.findRemembered(RememberedTv("uuid:x", "Living Room", "QA55Q60"), listOf(a, b)))
+        // Two identical TVs: ambiguous, so no guess.
+        val twin = a.copy(ip = "192.168.1.32")
+        assertNull(TvDiscovery.findRemembered(RememberedTv(null, "Living Room", "QA55Q60"), listOf(a, twin)))
+    }
+
+    @Test
     fun addressConversionRoundTrips() {
         for (ip in listOf("0.0.0.0", "192.168.1.9", "255.255.255.255", "10.0.2.15")) {
             assertEquals(ip, TvNetwork.toText(TvNetwork.toInt(ip)))

@@ -32,6 +32,7 @@ import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.RememberedTv
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
 import tv.nuvio.installer.core.SamsungTvStatus
@@ -77,6 +78,9 @@ const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 const val BACKUP_FILE_NAME = "nuvio-tizen-certificates.zip"
 const val PREF_APP_NOTIFIED_TAG = "appNotifiedTag"
+const val PREF_TV_ID = "tvId"
+const val PREF_TV_NAME = "tvName"
+const val PREF_TV_MODEL = "tvModel"
 private const val PREF_APP_DISMISSED_TAG = "appDismissedTag"
 
 class InstallerViewModel(application: Application) : AndroidViewModel(application) {
@@ -370,23 +374,33 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         ipReport = null
         viewModelScope.launch {
             try {
-                val check = if (TvNetwork.isValidIpv4(ip) && ip != phone.ip) {
-                    withContext(Dispatchers.IO) {
-                        val status = async { runCatching { TvNetwork.fetchStatus(ip) }.getOrNull() }
-                        try {
-                            TvCheck(installer().probe(ip), null, status.await())
-                        } catch (e: Exception) {
-                            TvCheck(null, e.message ?: e.javaClass.simpleName, status.await())
+                var target = ip
+                var check = probeTv(ip, phone)
+                val phoneIp = phone.ip
+                if (check.info == null && check.status == null && phoneIp != null && TvNetwork.isValidIpv4(ip)) {
+                    // Nothing answered at the saved IP: the router may have given the TV a new one.
+                    val remembered = rememberedTv()
+                    if (remembered != null) {
+                        val found = withContext(Dispatchers.IO) { TvDiscovery.scan(phoneIp, phone.prefixLength) }
+                        foundTvs = found
+                        val moved = TvDiscovery.findRemembered(remembered, found)
+                        if (moved != null && moved.ip != ip) {
+                            log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new address."))
+                            target = moved.ip
+                            tvIp = target
+                            prefs.edit().putString("tvIp", target).apply()
+                            check = probeTv(target, phone)
                         }
                     }
-                } else TvCheck(null, null, null)
+                }
                 val report = TvNetwork.report(
-                    phone.ip, phone.prefixLength, ip, check.status, check.info != null, check.error,
+                    phone.ip, phone.prefixLength, target, check.status, check.info != null, check.error,
                     prefs.getString("lastGoodPhoneIp", null),
                 )
                 ipReport = report
                 tvName = check.status?.name.orEmpty()
                 tvInfo = check.info
+                check.status?.let(::rememberTv)
                 if (check.info != null) {
                     tvState = TvState.ONLINE
                     phone.ip?.let { prefs.edit().putString("lastGoodPhoneIp", it).apply() }
@@ -403,6 +417,36 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 tryPendingUpdate()
             }
         }
+    }
+
+    /** Asks the TV's info port and tries the installer connection, in parallel. */
+    private suspend fun probeTv(ip: String, phone: PhoneNetwork): TvCheck {
+        if (!TvNetwork.isValidIpv4(ip) || ip == phone.ip) return TvCheck(null, null, null)
+        return withContext(Dispatchers.IO) {
+            val status = async { runCatching { TvNetwork.fetchStatus(ip) }.getOrNull() }
+            try {
+                TvCheck(installer().probe(ip), null, status.await())
+            } catch (e: Exception) {
+                TvCheck(null, e.message ?: e.javaClass.simpleName, status.await())
+            }
+        }
+    }
+
+    /** Remembers which TV answered, so it can be found again after the router gives it a new IP. */
+    private fun rememberTv(status: SamsungTvStatus) {
+        if (status.name.isEmpty()) return
+        prefs.edit()
+            .putString(PREF_TV_ID, status.id)
+            .putString(PREF_TV_NAME, status.name)
+            .putString(PREF_TV_MODEL, status.model)
+            .apply()
+    }
+
+    private fun rememberedTv(): RememberedTv? {
+        val name = prefs.getString(PREF_TV_NAME, null).orEmpty()
+        val id = prefs.getString(PREF_TV_ID, null)
+        if (name.isEmpty() && id.isNullOrEmpty()) return null
+        return RememberedTv(id, name, prefs.getString(PREF_TV_MODEL, null).orEmpty())
     }
 
     /** Remembered so the background update check knows what is on the TV. */
