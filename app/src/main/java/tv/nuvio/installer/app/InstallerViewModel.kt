@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.GitHubReleases
 import tv.nuvio.installer.core.IdentityStore
 import tv.nuvio.installer.core.InstallStage
@@ -35,6 +36,7 @@ import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
 import tv.nuvio.installer.core.SamsungTvStatus
 import tv.nuvio.installer.core.TizenInstaller
+import tv.nuvio.installer.core.TvDiscovery
 import tv.nuvio.installer.core.TvInfo
 import tv.nuvio.installer.core.TvNetwork
 import tv.nuvio.installer.core.downloadFile
@@ -119,6 +121,12 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var tvInfo by mutableStateOf<TvInfo?>(null)
         private set
+    /** True while the network scan for TVs runs. */
+    var scanning by mutableStateOf(false)
+        private set
+    /** TVs found by the last scan; null before the first scan. */
+    var foundTvs by mutableStateOf<List<FoundTv>?>(null)
+        private set
 
     /** Non-null while an action runs; the action's name. */
     var busy by mutableStateOf<String?>(null)
@@ -147,7 +155,41 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         showGuide = !prefs.getBoolean("setupDone", false)
         loadReleases()
         checkAppUpdate()
-        if (tvIp.isNotBlank()) checkTv()
+        if (tvIp.isNotBlank()) checkTv() else scanForTvs(autoSelect = true)
+    }
+
+    /**
+     * Looks for Samsung TVs on the phone's Wi-Fi. With [autoSelect], a single TV found while no
+     * TV IP is set yet is selected and checked straight away.
+     */
+    fun scanForTvs(autoSelect: Boolean = false) {
+        if (scanning) return
+        refreshPhoneIp()
+        val phone = phoneNetwork
+        val ip = phone.ip
+        if (ip == null) {
+            foundTvs = emptyList()
+            return
+        }
+        scanning = true
+        viewModelScope.launch {
+            try {
+                val found = withContext(Dispatchers.IO) { TvDiscovery.scan(ip, phone.prefixLength) }
+                foundTvs = found
+                log.add(LogLine(LogLevel.INFO, "Network scan: ${found.size} Samsung TV${if (found.size == 1) "" else "s"} found" +
+                    found.joinToString("") { "\n  ${it.ip} ${it.status.name}" }))
+                if (autoSelect && tvIp.isBlank() && found.size == 1) selectTv(found.single())
+            } finally {
+                scanning = false
+            }
+        }
+    }
+
+    /** Uses a TV from the scan results. */
+    fun selectTv(tv: FoundTv) {
+        if (busy != null) return
+        updateTvIp(tv.ip)
+        checkTv()
     }
 
     /** Never throws: an offline phone just shows "couldn't check" in About. */
