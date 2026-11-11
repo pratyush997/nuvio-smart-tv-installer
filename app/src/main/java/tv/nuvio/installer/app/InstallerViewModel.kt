@@ -227,6 +227,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         if (app != selectedApp) showApp(app)
     }
 
+    /** The address the selected TV had before the last check found it somewhere else. */
+    var tvMovedFrom by mutableStateOf<String?>(null)
+        private set
+
     /** Where the setup guide opens: 0 for the full guide, later steps when adding another TV. */
     var guideStartStep by mutableStateOf(0)
         private set
@@ -484,6 +488,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateTvIp(value: String) {
         tvIp = value.trim()
+        tvMovedFrom = null
         prefs.edit().putString("tvIp", tvIp).apply()
         showAppOfCurrentTv()
         if (tvState != TvState.CHECKING) {
@@ -681,6 +686,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                             log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new address."))
                             target = moved.ip
                             tvIp = target
+                            tvMovedFrom = ip
                             prefs.edit().putString("tvIp", target).apply()
                             check = probeTv(target, phone)
                             keepList = false
