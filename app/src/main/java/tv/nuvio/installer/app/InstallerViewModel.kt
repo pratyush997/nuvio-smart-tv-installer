@@ -20,6 +20,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tv.nuvio.installer.core.BackupPasswordException
@@ -29,8 +30,13 @@ import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.IdentityBackup
 import tv.nuvio.installer.core.GitHubReleases
 import tv.nuvio.installer.core.IdentityStore
+import tv.nuvio.installer.core.InstallReadiness
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.InstallerEvents
+import tv.nuvio.installer.core.MainAction
+import tv.nuvio.installer.core.ReadyCheck
+import tv.nuvio.installer.core.ReadyResult
+import tv.nuvio.installer.core.ReadyState
 import tv.nuvio.installer.core.InstallerException
 import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
@@ -78,7 +84,8 @@ enum class TvState { UNKNOWN, CHECKING, ONLINE, OFFLINE }
 
 enum class OutcomeKind { SUCCESS, ERROR, NEEDS_CERTIFICATE }
 
-data class Outcome(val kind: OutcomeKind, val title: String, val message: String)
+/** A finished job's result. [app]: the app it was about, for "Uninstall from TV" on a certificate problem. */
+data class Outcome(val kind: OutcomeKind, val title: String, val message: String, val app: NuvioApp? = null)
 
 /** The phone's address on the local network; [ip] is null when it has none. [gateway] is the router. */
 data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: String? = null)
@@ -111,6 +118,12 @@ const val PREF_TV_NAME = "tvName"
 const val PREF_TV_MODEL = "tvModel"
 private const val PREF_APP_DISMISSED_TAG = "appDismissedTag"
 private const val PREF_LEGACY_NOTICE = "legacyNoticeSeen"
+
+/** [InstallerViewModel.busy] while the install checks run. */
+const val BUSY_CHECKS = "Checking"
+
+/** Pause between checklist rows, so each tick can be seen. */
+private const val CHECK_STEP_MS = 250L
 
 class InstallerViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -195,10 +208,6 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     val currentTv: SavedTv?
         get() = SavedTvs.atIp(savedTvs, tvIp)
 
-    /** The app the main button installs: Nuvio TV, or Nuvio Legacy. Chosen per TV. */
-    var selectedApp by mutableStateOf(SavedTvs.atIp(savedTvs, tvIp)?.chosenApp ?: NuvioApp.TV)
-        private set
-
     /** The one-time "About Nuvio Legacy" notice was accepted. */
     var legacyNoticeSeen by mutableStateOf(prefs.getBoolean(PREF_LEGACY_NOTICE, false))
         private set
@@ -208,23 +217,47 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         prefs.edit().putBoolean(PREF_LEGACY_NOTICE, true).apply()
     }
 
-    /** Switches the app for the selected TV and offers that app's newest version. */
-    fun selectApp(app: NuvioApp) {
-        if (busy != null || app == selectedApp) return
-        showApp(app)
-        savedTvs = TvList.update(prefs) { list -> list.map { if (it.ip == tvIp) it.copy(app = app) else it } }
+    /** What each app's card installs: a release, or a file the user picked. No entry: nothing loaded yet. */
+    var sources by mutableStateOf<Map<NuvioApp, PackageSource>>(emptyMap())
+        private set
+
+    fun source(app: NuvioApp): PackageSource? = sources[app]
+
+    fun chooseSource(app: NuvioApp, source: PackageSource) {
+        sources = sources + (app to source)
     }
 
-    private fun showApp(app: NuvioApp) {
-        selectedApp = app
-        source = latestRelease?.let { PackageSource.FromRelease(it) }
-        if (releasesByApp[app] == null) loadReleases(app)
-    }
+    // ---- Install checks (see InstallReadiness) ----
 
-    /** After switching TVs: show the app chosen for that TV. */
-    private fun showAppOfCurrentTv() {
-        val app = currentTv?.chosenApp ?: NuvioApp.TV
-        if (app != selectedApp) showApp(app)
+    /** The install checks done so far, in order; empty when none ran. */
+    var checks by mutableStateOf<List<ReadyResult>>(emptyList())
+        private set
+
+    /** The app the checks are for; null when there is no checklist. */
+    var checksApp by mutableStateOf<NuvioApp?>(null)
+        private set
+
+    /** The check running now (spinner), or null. */
+    var checkRunning by mutableStateOf<ReadyCheck?>(null)
+        private set
+
+    /** Set when the last checks stopped at a failure; the highlighted button then re-runs them. */
+    var checkFailed by mutableStateOf<NuvioApp?>(null)
+        private set
+
+    /** True while the install checks run. */
+    val checking: Boolean
+        get() = busy == BUSY_CHECKS
+
+    /** The failed check, when the checklist stopped at one. */
+    val failedCheck: ReadyResult?
+        get() = checks.lastOrNull()?.takeIf { it.state == ReadyState.FAIL }
+
+    fun dismissChecks() {
+        if (checking) return
+        checks = emptyList()
+        checksApp = null
+        checkFailed = null
     }
 
     /** The address the selected TV had before the last check found it somewhere else. */
@@ -279,18 +312,16 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private var releaseErrors by mutableStateOf<Map<NuvioApp, String>>(emptyMap())
 
     /**
-     * The selected app's releases, newest first. For Nuvio TV pre-releases are included: all are
-     * offered in the version menu; only full releases count as "latest" (see [latestRelease]).
+     * [app]'s releases, newest first. For Nuvio TV pre-releases are included: all are offered in
+     * the version menu; only full releases count as "latest" (see [latestRelease]).
      */
-    val releases: List<Release>
-        get() = releasesByApp[selectedApp].orEmpty()
-    val releasesError: String?
-        get() = releaseErrors[selectedApp]
+    fun releases(app: NuvioApp): List<Release> = releasesByApp[app].orEmpty()
+
+    fun releasesError(app: NuvioApp): String? = releaseErrors[app]
 
     /** Nuvio TV's releases, for update notifications (which are about Nuvio TV only). */
     private val tvReleases: List<Release>
         get() = releasesByApp[NuvioApp.TV].orEmpty()
-    var source by mutableStateOf<PackageSource?>(null)
 
     var tvState by mutableStateOf(TvState.UNKNOWN)
         private set
@@ -337,8 +368,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     init {
         refreshIdentities()
         showGuide = !prefs.getBoolean("setupDone", false)
-        loadReleases(NuvioApp.TV)
-        if (selectedApp != NuvioApp.TV) loadReleases(selectedApp)
+        NuvioApp.entries.forEach(::loadReleases)
         checkAppUpdate()
         if (tvIp.isNotBlank()) checkTv() else scanForTvs(autoSelect = true)
     }
@@ -442,20 +472,45 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     val installedLabel: String?
         get() = tvOnBeta?.installedLabel ?: installedVersion
 
-    /** True when the selected app is on the TV (as of the last check). */
-    val selectedInstalled: Boolean
-        get() = tvInfo?.app(selectedApp) != null
+    /** True when [app] is on the TV (as of the last check). */
+    fun isInstalled(app: NuvioApp): Boolean = tvInfo?.app(app) != null
 
     /**
-     * What the "On TV" tile shows for the selected app: Nuvio TV's version, or just "Installed"
-     * for Legacy, whose TV-reported version is not the release number.
+     * What [app]'s card says is on the TV: Nuvio TV's version, or just "Installed" for Legacy,
+     * whose TV-reported version is not the release number. Null when it is not installed.
      */
-    val selectedInstalledLabel: String?
-        get() = when {
-            selectedApp == NuvioApp.TV -> installedLabel
-            selectedInstalled -> "Installed"
-            else -> null
+    fun installedLabel(app: NuvioApp): String? = when {
+        app == NuvioApp.TV -> installedLabel
+        isInstalled(app) -> "Installed"
+        else -> null
+    }
+
+    /** True when Nuvio TV is on the connected TV and a newer version is out. */
+    val updateAvailable: Boolean
+        get() {
+            if (tvState != TvState.ONLINE || installedVersion == null) return false
+            val latest = latestRelease(NuvioApp.TV) ?: return false
+            return compareWithInstalled(latest) == -1
         }
+
+    /**
+     * True when [app]'s card button should open the app rather than install: it is on the TV and
+     * what is chosen is what is installed. Reinstalling is in the card's menu.
+     */
+    fun opensOnTv(app: NuvioApp): Boolean {
+        if (tvState != TvState.ONLINE || !isInstalled(app)) return false
+        val release = (sources[app] as? PackageSource.FromRelease)?.release ?: return sources[app] == null
+        return !app.tracksVersions || compareWithInstalled(release) == 0
+    }
+
+    /** The highlighted button on the main screen. */
+    val mainAction: MainAction
+        get() = MainAction.pick(
+            hasTv = tvIp.isNotBlank(),
+            online = tvState == TvState.ONLINE,
+            apps = NuvioApp.entries.associateWith { MainAction.AppState(isInstalled(it), it == NuvioApp.TV && updateAvailable) },
+            failedChecks = checkFailed,
+        )
 
     /** How [release] compares with what is on the TV: -1 when it is newer, null when unknown. */
     private fun compareWithInstalled(release: Release): Int? {
@@ -465,32 +520,33 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         else ReleaseChannel.compare(installed, false, release.tag_name, release.prerelease)
     }
 
-    /** Label for the main button, based on what is on the TV and what is selected. */
-    val primaryLabel: String
-        get() {
-            val selected = source ?: return "Install"
-            val release = (selected as? PackageSource.FromRelease)?.release ?: return "Install selected file"
-            val target = selected.version
-            if (!selectedApp.tracksVersions) {
-                return if (tvState == TvState.ONLINE && selectedInstalled) "Reinstall ${selectedApp.label}" else "Install ${selectedApp.label}"
-            }
-            return when {
-                tvState != TvState.ONLINE -> "Install Nuvio $target"
-                installedVersion == null -> "Install Nuvio $target"
-                else -> when (compareWithInstalled(release)) {
-                    0 -> "Reinstall $target"
-                    -1 -> "Update to $target"
-                    1 -> "Install older $target"
-                    else -> "Install Nuvio $target"
-                }
+    /** Label for [app]'s install button, based on what is on the TV and what is chosen. */
+    fun buttonLabel(app: NuvioApp): String {
+        val selected = sources[app] ?: return "Install ${app.label}"
+        val release = (selected as? PackageSource.FromRelease)?.release ?: return "Install selected file"
+        val target = selected.version
+        if (!app.tracksVersions) {
+            return if (tvState == TvState.ONLINE && isInstalled(app)) "Reinstall ${app.label}" else "Install ${app.label}"
+        }
+        return when {
+            tvState != TvState.ONLINE -> "Install Nuvio $target"
+            installedVersion == null -> "Install Nuvio $target"
+            else -> when (compareWithInstalled(release)) {
+                0 -> "Reinstall $target"
+                -1 -> "Update to $target"
+                1 -> "Install older $target"
+                else -> "Install Nuvio $target"
             }
         }
+    }
 
     fun updateTvIp(value: String) {
+        val changed = value.trim() != tvIp
         tvIp = value.trim()
         tvMovedFrom = null
         prefs.edit().putString("tvIp", tvIp).apply()
-        showAppOfCurrentTv()
+        // The checklist was for the TV that was selected before.
+        if (changed && !checking) dismissChecks()
         if (tvState != TvState.CHECKING) {
             tvState = TvState.UNKNOWN
             tvInfo = null
@@ -525,8 +581,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
      * The newest release for the selected TV: the newest full release, or, while the TV runs a
      * beta, the newest version overall (see [ReleaseChannel.latestFor]).
      */
-    val latestRelease: Release?
-        get() = if (selectedApp == NuvioApp.TV) ReleaseChannel.latestFor(releases, currentTv) else ReleaseChannel.latest(releases, beta = false)
+    fun latestRelease(app: NuvioApp): Release? =
+        if (app == NuvioApp.TV) ReleaseChannel.latestFor(releases(app), currentTv) else ReleaseChannel.latest(releases(app), beta = false)
 
     /**
      * One-tap update (from the "new version" notification): installs the newest release on the
@@ -536,7 +592,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         pendingUpdate = true
         pendingUpdateTv = tvKey
         showGuide = false
-        if (releasesError != null) loadReleases()
+        if (releasesError(NuvioApp.TV) != null) loadReleases(NuvioApp.TV)
         tryPendingUpdate()
     }
 
@@ -551,14 +607,13 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
         pendingUpdate = false
         // Update notifications are about Nuvio TV.
-        if (selectedApp != NuvioApp.TV) selectApp(NuvioApp.TV)
-        val target = latestRelease ?: return
-        source = PackageSource.FromRelease(target)
+        val target = latestRelease(NuvioApp.TV) ?: return
+        chooseSource(NuvioApp.TV, PackageSource.FromRelease(target))
         if (tvState == TvState.ONLINE && (compareWithInstalled(target) ?: -1) >= 0) {
             outcome = Outcome(OutcomeKind.SUCCESS, "Already up to date", "Your TV already has Nuvio $installedLabel.")
             return
         }
-        install()
+        install(NuvioApp.TV)
     }
 
     fun backupRequestHandled() {
@@ -572,21 +627,24 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         return !UpdateCheck.canNotify(getApplication())
     }
 
-    fun loadReleases(app: NuvioApp = selectedApp) {
+    fun loadReleases(app: NuvioApp) {
+        viewModelScope.launch { fetchReleases(app) }
+    }
+
+    /** Loads [app]'s releases and waits for them; on failure [releaseErrors] says why. */
+    private suspend fun fetchReleases(app: NuvioApp) {
         releaseErrors = releaseErrors - app
-        viewModelScope.launch {
-            try {
-                val list = withContext(Dispatchers.IO) { GitHubReleases.of(app) }
-                releasesByApp = releasesByApp + (app to list)
-                if (source == null && app == selectedApp) latestRelease?.let { source = PackageSource.FromRelease(it) }
-                if (app == NuvioApp.TV) tryPendingUpdate()
-            } catch (e: Exception) {
-                val error = "Couldn't load ${app.label} versions. Check the internet connection."
-                releaseErrors = releaseErrors + (app to error)
-                if (pendingUpdate && app == NuvioApp.TV) {
-                    pendingUpdate = false
-                    outcome = Outcome(OutcomeKind.ERROR, "Update failed", error)
-                }
+        try {
+            val list = withContext(Dispatchers.IO) { GitHubReleases.of(app) }
+            releasesByApp = releasesByApp + (app to list)
+            if (sources[app] == null) latestRelease(app)?.let { chooseSource(app, PackageSource.FromRelease(it)) }
+            if (app == NuvioApp.TV) tryPendingUpdate()
+        } catch (e: Exception) {
+            val error = "Couldn't load ${app.label} versions. Check the internet connection."
+            releaseErrors = releaseErrors + (app to error)
+            if (pendingUpdate && app == NuvioApp.TV) {
+                pendingUpdate = false
+                outcome = Outcome(OutcomeKind.ERROR, "Update failed", error)
             }
         }
     }
@@ -659,66 +717,79 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** Checks the phone and TV addresses, asks the TV how Developer Mode is set, and tries the installer connection. */
     fun checkTv() {
         if (busy != null || tvIp.isBlank()) return
-        refreshPhoneIp()
-        val ip = tvIp
-        val phone = phoneNetwork
         busy = "Checking TV"
-        tvState = TvState.CHECKING
-        tvError = null
-        ipReport = null
+        // "Check again" after failed install checks: this check replaces them.
+        dismissChecks()
         viewModelScope.launch {
             try {
-                var target = ip
-                var check = probeTv(ip, phone)
-                val phoneIp = phone.ip
-                val expected = SavedTvs.atIp(savedTvs, ip)
-                // A different TV answers at this saved address: the router swapped the two TVs' addresses.
-                val otherTv = expected?.id != null && check.status?.id != null && check.status?.id != expected.id
-                var keepList = otherTv
-                if ((otherTv || check.info == null && check.status == null) && phoneIp != null && TvNetwork.isValidIpv4(ip)) {
-                    // The router may have given the TV a new address: look for it on the Wi-Fi.
-                    val remembered = expected?.remembered
-                    if (remembered != null) {
-                        val found = withContext(Dispatchers.IO) { TvDiscovery.scan(phoneIp, phone.prefixLength) }
-                        foundTvs = found
-                        val moved = TvDiscovery.findRemembered(remembered, found)
-                        if (moved != null && moved.ip != ip) {
-                            log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new address."))
-                            target = moved.ip
-                            tvIp = target
-                            tvMovedFrom = ip
-                            prefs.edit().putString("tvIp", target).apply()
-                            check = probeTv(target, phone)
-                            keepList = false
-                        }
-                    }
-                }
-                // Not when the saved TV is missing and another one answered: that would replace it in the list.
-                if (!keepList && (check.status != null || check.info != null)) saveTv(target, check.status, check.info)
-                val report = TvNetwork.report(
-                    phone.ip, phone.prefixLength, target, check.status, check.info != null, check.error,
-                    prefs.getString("lastGoodPhoneIp", null), phone.gateway,
-                )
-                ipReport = report
-                tvName = check.status?.name.orEmpty()
-                tvInfo = check.info
-                check.status?.let(::rememberTv)
-                if (check.info != null) {
-                    tvState = TvState.ONLINE
-                    phone.ip?.let { prefs.edit().putString("lastGoodPhoneIp", it).apply() }
-                    rememberInstalledVersion(check.info)
-                } else {
-                    tvState = TvState.OFFLINE
-                    tvError = report.fix?.text ?: check.error
-                    log.add(LogLine(LogLevel.ERROR, report.rows.lastOrNull()?.text.orEmpty()))
-                    report.fix?.let { log.add(LogLine(LogLevel.INFO, it.text)) }
-                }
+                probeAndReport()
             } finally {
                 busy = null
                 refreshIdentities()
                 tryPendingUpdate()
             }
         }
+    }
+
+    /**
+     * The TV check behind [checkTv] and the install checks, waited for: probes the TV (finding it
+     * again when the router gave it a new address), then updates [tvState], [tvInfo] and
+     * [ipReport]. The caller holds [busy].
+     */
+    private suspend fun probeAndReport(): TvCheck {
+        refreshPhoneIp()
+        val ip = tvIp
+        val phone = phoneNetwork
+        tvState = TvState.CHECKING
+        tvError = null
+        ipReport = null
+        var target = ip
+        var check = probeTv(ip, phone)
+        val phoneIp = phone.ip
+        val expected = SavedTvs.atIp(savedTvs, ip)
+        // A different TV answers at this saved address: the router swapped the two TVs' addresses.
+        val otherTv = expected?.id != null && check.status?.id != null && check.status?.id != expected.id
+        var keepList = otherTv
+        if ((otherTv || check.info == null && check.status == null) && phoneIp != null && TvNetwork.isValidIpv4(ip)) {
+            // The router may have given the TV a new address: look for it on the Wi-Fi.
+            val remembered = expected?.remembered
+            if (remembered != null) {
+                val found = withContext(Dispatchers.IO) { TvDiscovery.scan(phoneIp, phone.prefixLength) }
+                foundTvs = found
+                val moved = TvDiscovery.findRemembered(remembered, found)
+                if (moved != null && moved.ip != ip) {
+                    log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new address."))
+                    target = moved.ip
+                    tvIp = target
+                    tvMovedFrom = ip
+                    prefs.edit().putString("tvIp", target).apply()
+                    check = probeTv(target, phone)
+                    keepList = false
+                }
+            }
+        }
+        // Not when the saved TV is missing and another one answered: that would replace it in the list.
+        if (!keepList && (check.status != null || check.info != null)) saveTv(target, check.status, check.info)
+        val report = TvNetwork.report(
+            phone.ip, phone.prefixLength, target, check.status, check.info != null, check.error,
+            prefs.getString("lastGoodPhoneIp", null), phone.gateway,
+        )
+        ipReport = report
+        tvName = check.status?.name.orEmpty()
+        tvInfo = check.info
+        check.status?.let(::rememberTv)
+        if (check.info != null) {
+            tvState = TvState.ONLINE
+            phone.ip?.let { prefs.edit().putString("lastGoodPhoneIp", it).apply() }
+            rememberInstalledVersion(check.info)
+        } else {
+            tvState = TvState.OFFLINE
+            tvError = report.fix?.text ?: check.error
+            log.add(LogLine(LogLevel.ERROR, report.rows.lastOrNull()?.text.orEmpty()))
+            report.fix?.let { log.add(LogLine(LogLevel.INFO, it.text)) }
+        }
+        refreshIdentities()
+        return check
     }
 
     /** Asks the TV's info port and tries the installer connection, in parallel. */
@@ -758,8 +829,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 candidate.copy(
                     installedVersion = if (info != null) version else old?.installedVersion,
                     hasLegacy = if (info != null) info.app(NuvioApp.LEGACY) != null else old?.hasLegacy == true,
-                    // A new TV keeps the app picked before it was saved.
-                    app = if (old == null && ip == tvIp) selectedApp.takeIf { it != NuvioApp.TV } else null,
+                    // The per-TV app choice is no longer used (each app has its own card); null keeps what was saved.
+                    app = null,
                 ),
             )
         }
@@ -787,45 +858,56 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }.apply()
     }
 
-    private fun run(label: String, block: suspend () -> Outcome) {
+    /** Runs [block] for [app] as one job: nothing else starts until it ends. */
+    private fun run(label: String, app: NuvioApp, block: suspend () -> Outcome) {
         if (busy != null) return
         if (tvIp.isBlank()) {
             outcome = Outcome(OutcomeKind.ERROR, "TV IP missing", "Enter the TV's IP address first.")
             return
         }
         busy = label
+        viewModelScope.launch {
+            // After a failure, re-run the address checks so the TV card says what is wrong.
+            if (!runHeld(label, app, block)) checkTv()
+        }
+    }
+
+    /**
+     * The work of [run], for a caller that already holds [busy] (the install checks): runs
+     * [block], shows its outcome and releases [busy]. Returns false when it failed.
+     */
+    private suspend fun runHeld(label: String, app: NuvioApp, block: suspend () -> Outcome): Boolean {
+        busy = label
         outcome = null
         stage = null
         progress = null
         progressLabel = ""
         log.add(LogLine(LogLevel.INFO, "── $label ──"))
-        viewModelScope.launch {
-            var failed = false
-            try {
-                outcome = withContext(Dispatchers.IO) { block() }
-            } catch (e: MissingIdentityException) {
-                outcome = Outcome(
-                    OutcomeKind.NEEDS_CERTIFICATE,
-                    if (e is CertificateExpiredException) "Certificate expired" else "Certificate needed",
-                    e.message.orEmpty(),
-                )
-                log.add(LogLine(LogLevel.ERROR, e.message.orEmpty()))
-            } catch (e: Exception) {
-                val text = if (e is InstallerException) e.message.orEmpty() else "${e.javaClass.simpleName}: ${e.message}"
-                outcome = Outcome(OutcomeKind.ERROR, "$label failed", text)
-                log.add(LogLine(LogLevel.ERROR, text))
-                failed = true
-            } finally {
-                busy = null
-                stage = null
-                progress = null
-                progressLabel = ""
-                waitingForLogin = false
-                refreshIdentities()
-            }
-            // After a failure, re-run the address checks so the TV card says what is wrong.
-            if (failed) checkTv()
+        var failed = false
+        try {
+            outcome = withContext(Dispatchers.IO) { block() }
+        } catch (e: MissingIdentityException) {
+            outcome = Outcome(
+                OutcomeKind.NEEDS_CERTIFICATE,
+                if (e is CertificateExpiredException) "Certificate expired" else "Certificate needed",
+                e.message.orEmpty(),
+                app,
+            )
+            log.add(LogLine(LogLevel.ERROR, e.message.orEmpty()))
+        } catch (e: Exception) {
+            val text = if (e is InstallerException) e.message.orEmpty() else "${e.javaClass.simpleName}: ${e.message}"
+            outcome = Outcome(OutcomeKind.ERROR, "$label failed", text, app)
+            log.add(LogLine(LogLevel.ERROR, text))
+            failed = true
+        } finally {
+            busy = null
+            stage = null
+            progress = null
+            progressLabel = ""
+            waitingForLogin = false
+            refreshIdentities()
         }
+        return !failed
     }
 
     /** Re-reads the TV state after an action, without failing the action. */
@@ -841,39 +923,136 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun install() {
-        val app = selectedApp
-        val tizen = tvInfo?.platformVersion
-        run("Install") {
-            val installing = source
-            events.stage(InstallStage.PACKAGE)
-            // Legacy's file depends on the TV's Tizen version: ask the TV when it was not checked yet.
-            val version = tizen?.takeIf { it.isNotBlank() }
-                ?: if (app == NuvioApp.TV) null else runCatching { installer().probe(tvIp).platformVersion }.getOrNull()
-            val file = preparePackage(app, version)
-            val certificatesBefore = identityStore.all().map { it.first.name }.toSet()
-            var backupNote = ""
-            if (!TvAccess.tryAcquire()) throw InstallerException("An automatic Nuvio update is running on the TV right now. Try again in a few minutes.")
-            try {
-                installer().install(tvIp, file, app = app)
+    /**
+     * Installs (or updates) [app]: runs the install checks first, then, when they all pass, the
+     * install itself. Checks and install are one job: [busy] is held from the tap to the end.
+     */
+    fun install(app: NuvioApp) {
+        if (busy != null) return
+        if (tvIp.isBlank()) {
+            outcome = Outcome(OutcomeKind.ERROR, "No TV yet", "Tap Find my TV, or type the TV's IP address.")
+            return
+        }
+        busy = BUSY_CHECKS
+        outcome = null
+        checks = emptyList()
+        checksApp = app
+        checkFailed = null
+        viewModelScope.launch {
+            val passed = try {
+                runChecks(app)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Show it as the failed row, so the checklist offers Check again.
+                val text = e.message ?: e.javaClass.simpleName
+                checks = checks + ReadyResult(checkRunning ?: ReadyCheck.TV, ReadyState.FAIL, text)
+                log.add(LogLine(LogLevel.ERROR, "Checks stopped: $text"))
+                false
             } finally {
-                TvAccess.release()
-                // A certificate was created for this TV: back it up right away, even if the install failed after that.
-                if (identityStore.all().any { it.first.name !in certificatesBefore }) backupNote = autoBackup()
+                checkRunning = null
             }
-            refreshTvQuietly()
-            withContext(Dispatchers.Main) { rememberInstalledRelease(installing, app) }
-            if (app == NuvioApp.TV) {
-                Outcome(
-                    OutcomeKind.SUCCESS, "Nuvio is on your TV",
-                    "Version ${installedLabel ?: installing?.version.orEmpty()} is installed. Open it from the TV's Apps screen.$backupNote",
-                )
-            } else {
-                Outcome(
-                    OutcomeKind.SUCCESS, "${app.label} is on your TV",
-                    "Open it from the TV's Apps screen. It updates itself from now on.$backupNote",
+            if (!passed) {
+                checkFailed = app
+                busy = null
+                return@launch
+            }
+            checks = emptyList()
+            checksApp = null
+            // The checklist already says what is wrong when the install fails: no extra TV check.
+            runHeld("Install", app) { installNow(app) }
+        }
+    }
+
+    /**
+     * The 7 install checks, in order, stopping at the first failure. Rows that need no waiting
+     * (Wi-Fi, an already loaded release) tick at once; the TV rows always ask the TV again, since
+     * it may have been turned off since the last check. Returns true when all passed.
+     */
+    private suspend fun runChecks(app: NuvioApp): Boolean {
+        suspend fun show(row: ReadyResult, wait: Boolean): Boolean {
+            if (wait) delay(CHECK_STEP_MS)
+            checks = checks + row
+            if (row.state == ReadyState.FAIL) {
+                log.add(LogLine(LogLevel.ERROR, "${row.check.title(app)}: ${row.detail}"))
+                return false
+            }
+            return true
+        }
+        log.add(LogLine(LogLevel.INFO, "── Checking before installing ${app.label} ──"))
+
+        // 1. Wi-Fi
+        refreshPhoneIp()
+        if (!show(InstallReadiness.wifiRow(phoneNetwork.ip), wait = false)) return false
+
+        // 2–5. The TV, asked again every time.
+        checkRunning = ReadyCheck.TV
+        val tv = probeAndReport()
+        val tvRows = InstallReadiness.tvRows(tv.status, phoneNetwork.ip, connected = tv.info != null)
+        for (row in tvRows) {
+            checkRunning = row.check
+            if (!show(row, wait = true)) return false
+        }
+        val info = tv.info ?: return false
+
+        // 6. The file for this TV.
+        checkRunning = ReadyCheck.PACKAGE
+        val loaded = releasesByApp[app] != null
+        if (!loaded && sources[app] !is PackageSource.FromFile) fetchReleases(app)
+        val source = sources[app]
+        val packageRow = InstallReadiness.packageRow(
+            app, (source as? PackageSource.FromRelease)?.release, source is PackageSource.FromFile,
+            info.platformVersion, releaseErrors[app],
+        )
+        if (!show(packageRow, wait = !loaded)) return false
+
+        // 7. Samsung sign-in, from what the TV check read: no extra connection.
+        checkRunning = ReadyCheck.SIGN_IN
+        val preflight = withContext(Dispatchers.IO) { installer().preflight(info.duid, info.app(app), app) }
+        val signIn = InstallReadiness.signInRow(preflight, app)
+        if (!show(signIn, wait = true)) {
+            preflight.blocked?.let { e ->
+                outcome = Outcome(
+                    OutcomeKind.NEEDS_CERTIFICATE,
+                    if (e is CertificateExpiredException) "Certificate expired" else "Certificate needed",
+                    e.message.orEmpty(),
+                    app,
                 )
             }
+            return false
+        }
+        delay(CHECK_STEP_MS)
+        return true
+    }
+
+    /** The install itself, after the checks passed; runs on the IO dispatcher. */
+    private suspend fun installNow(app: NuvioApp): Outcome {
+        val installing = sources[app]
+        events.stage(InstallStage.PACKAGE)
+        // The checks just read the TV's Tizen version, which picks Legacy's file.
+        val file = preparePackage(app, tvInfo?.platformVersion?.takeIf { it.isNotBlank() })
+        val certificatesBefore = identityStore.all().map { it.first.name }.toSet()
+        var backupNote = ""
+        if (!TvAccess.tryAcquire()) throw InstallerException("An automatic Nuvio update is running on the TV right now. Try again in a few minutes.")
+        try {
+            installer().install(tvIp, file, app = app)
+        } finally {
+            TvAccess.release()
+            // A certificate was created for this TV: back it up right away, even if the install failed after that.
+            if (identityStore.all().any { it.first.name !in certificatesBefore }) backupNote = autoBackup()
+        }
+        refreshTvQuietly()
+        withContext(Dispatchers.Main) { rememberInstalledRelease(installing, app) }
+        return if (app == NuvioApp.TV) {
+            Outcome(
+                OutcomeKind.SUCCESS, "Nuvio is on your TV",
+                "Version ${installedLabel ?: installing?.version.orEmpty()} is installed. Open it from the TV's Apps screen.$backupNote",
+            )
+        } else {
+            Outcome(
+                OutcomeKind.SUCCESS, "${app.label} is on your TV",
+                "Open it from the TV's Apps screen. It updates itself from now on.$backupNote",
+            )
         }
     }
 
@@ -912,18 +1091,16 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun launchOnTv() {
-        val app = selectedApp
-        run("Launch") {
+    fun launchOnTv(app: NuvioApp) {
+        run("Launch", app) {
             installer().launch(tvIp, app)
             Outcome(OutcomeKind.SUCCESS, "Launched", "${app.label} is opening on the TV.")
         }
     }
 
     /** Samsung sign-in that creates this TV's certificate now, before any install. */
-    fun createCertificate() {
-        val app = selectedApp
-        run("Samsung sign-in") { certificateOutcome(app) }
+    fun createCertificate(app: NuvioApp = NuvioApp.TV) {
+        run("Samsung sign-in", app) { certificateOutcome(app) }
     }
 
     private suspend fun certificateOutcome(app: NuvioApp): Outcome {
@@ -933,9 +1110,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         return Outcome(OutcomeKind.SUCCESS, "Certificate created", "Your TV's certificate is saved on this phone. Installs and updates won't ask you to sign in again.$backupNote")
     }
 
-    fun uninstall() {
-        val app = selectedApp
-        run("Uninstall") {
+    fun uninstall(app: NuvioApp) {
+        run("Uninstall", app) {
             installer().uninstall(tvIp, app)
             refreshTvQuietly()
             Outcome(OutcomeKind.SUCCESS, "Removed", "${app.label} was removed from the TV.")
@@ -950,7 +1126,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private fun preparePackage(app: NuvioApp, tizen: String?): File {
         val context = getApplication<Application>()
         val downloads = File(context.cacheDir, "downloads").apply { mkdirs() }
-        return when (val selected = source ?: throw InstallerException("Choose a ${app.label} version or a file first.")) {
+        return when (val selected = sources[app] ?: throw InstallerException("Choose a ${app.label} version or a file first.")) {
             is PackageSource.FromRelease -> when (val pick = app.packageFor(selected.release, tizen)) {
                 is PackagePick.Found -> ReleasePackage.fetch(pick.asset, downloads, events)
                 is PackagePick.Missing -> throw InstallerException(pick.reason)
@@ -967,10 +1143,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun selectFile(uri: Uri) {
+    fun selectFile(app: NuvioApp, uri: Uri) {
         val name = getApplication<Application>().contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "package.wgt"
-        source = PackageSource.FromFile(uri, name)
+        chooseSource(app, PackageSource.FromFile(uri, name))
     }
 
     /**
