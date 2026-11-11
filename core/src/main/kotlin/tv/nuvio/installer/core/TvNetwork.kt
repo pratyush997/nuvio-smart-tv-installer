@@ -30,12 +30,14 @@ enum class CheckState { OK, FAIL, UNKNOWN }
 data class CheckRow(val state: CheckState, val text: String)
 
 /**
- * What to do about a failed check: an optional one-line reason, then steps in order.
+ * What to do about a failed check: an optional one-line reason, then steps in order, then an
+ * optional [tip] for avoiding the problem next time, with a [tipLink] to open (the router's page).
  * [text] is the same as plain text, for logs.
  */
-data class Fix(val reason: String?, val steps: List<String>) {
+data class Fix(val reason: String?, val steps: List<String>, val tip: String? = null, val tipLink: String? = null) {
     val text: String
-        get() = (listOfNotNull(reason) + steps.mapIndexed { i, step -> "${i + 1}. $step" }).joinToString("\n")
+        get() = (listOfNotNull(reason) + steps.mapIndexed { i, step -> "${i + 1}. $step" } + listOfNotNull(tip?.let { "Tip: $it" }))
+            .joinToString("\n")
 }
 
 /** Result of the phone/TV address checks: one row per check, and what to do about the first failure. */
@@ -126,6 +128,7 @@ object TvNetwork {
      * [phoneIp] is null when the phone has no local network address. [connected] is whether the
      * installer connection (SDB) worked; [connectError] is its error when it did not.
      * [lastGoodPhoneIp] is the phone's address the last time the connection worked.
+     * [gatewayIp] is the router's address, used to point at its settings page.
      */
     fun report(
         phoneIp: String?,
@@ -135,6 +138,7 @@ object TvNetwork {
         connected: Boolean,
         connectError: String? = null,
         lastGoodPhoneIp: String? = null,
+        gatewayIp: String? = null,
     ): IpReport {
         val rows = ArrayList<CheckRow>()
         var fix: Fix? = null
@@ -153,6 +157,14 @@ object TvNetwork {
         val powerCycle = "Unplug the TV from power, wait 5 seconds, then plug it back in."
         val refresh = "Tap refresh here."
         val findTvIp = "On the TV, open Settings › General (or Connection) › Network › Network Status › IP Settings."
+        // The TV only accepts the Host PC IP typed on it, so a phone that gets a new IP from the
+        // router breaks the connection again. A reserved address stops that.
+        val router = gatewayIp?.takeIf { isValidIpv4(it) }
+        val reserveTip = phoneIp?.takeIf { !emulator }?.let { ip ->
+            "So this does not happen again, reserve $ip for this phone in your router's settings " +
+                "(often called DHCP reservation or static IP)." + if (router != null) " The router's page is usually at http://$router." else ""
+        }
+        val reserveLink = router?.takeIf { reserveTip != null }?.let { "http://$it" }
         fun setHostIp(from: String?) = buildString {
             append(if (from != null) "Change Host PC IP from $from to $hostIp." else "Set Host PC IP to $hostIp.")
             if (emulator) append(" $findPcIp")
@@ -221,7 +233,7 @@ object TvNetwork {
             developerIp == phoneIp -> add(CheckState.OK, "Host PC IP matches this phone")
             else -> add(
                 CheckState.FAIL, "Host PC IP on the TV is $developerIp, but this phone is $hostIp",
-                Fix(null, listOf(openDevMode, setHostIp(developerIp), powerCycle, refresh)),
+                Fix(null, listOf(openDevMode, setHostIp(developerIp), powerCycle, refresh), reserveTip, reserveLink),
             )
         }
 
@@ -238,6 +250,7 @@ object TvNetwork {
                 phoneMoved -> Fix(
                     "This phone's IP changed from $lastGoodPhoneIp to $phoneIp.",
                     listOf(openDevMode, setHostIp(lastGoodPhoneIp), powerCycle, refresh),
+                    reserveTip, reserveLink,
                 )
                 else -> Fix(
                     connectError?.takeIf { it.isNotBlank() },

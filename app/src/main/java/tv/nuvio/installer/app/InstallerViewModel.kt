@@ -70,8 +70,8 @@ enum class OutcomeKind { SUCCESS, ERROR, NEEDS_CERTIFICATE }
 
 data class Outcome(val kind: OutcomeKind, val title: String, val message: String)
 
-/** The phone's address on the local network; [ip] is null when it has none. */
-data class PhoneNetwork(val ip: String?, val prefixLength: Int)
+/** The phone's address on the local network; [ip] is null when it has none. [gateway] is the router. */
+data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: String? = null)
 
 const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
@@ -395,7 +395,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 val report = TvNetwork.report(
                     phone.ip, phone.prefixLength, target, check.status, check.info != null, check.error,
-                    prefs.getString("lastGoodPhoneIp", null),
+                    prefs.getString("lastGoodPhoneIp", null), phone.gateway,
                 )
                 ipReport = report
                 tvName = check.status?.name.orEmpty()
@@ -720,9 +720,13 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                     if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
                         !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                     ) continue
-                    val link = manager.getLinkProperties(network)?.linkAddresses
-                        ?.firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress } ?: continue
-                    return PhoneNetwork(link.address.hostAddress, link.prefixLength)
+                    val properties = manager.getLinkProperties(network) ?: continue
+                    val link = properties.linkAddresses
+                        .firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress } ?: continue
+                    val gateway = properties.routes
+                        .firstOrNull { it.isDefaultRoute && it.gateway is Inet4Address && !it.gateway!!.isAnyLocalAddress }
+                        ?.gateway?.hostAddress
+                    return PhoneNetwork(link.address.hostAddress, link.prefixLength, gateway)
                 }
             }
         }

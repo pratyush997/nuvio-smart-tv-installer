@@ -581,6 +581,14 @@ internal fun IpReportView(report: IpReport) {
                         Text(highlightIps(step), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 1.dp))
                     }
                 }
+                fix.tip?.let { tip ->
+                    HorizontalDivider(color = Palette.Warning.copy(alpha = 0.2f))
+                    Text(highlightIps(tip), color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+                    fix.tipLink?.let { link ->
+                        val uri = LocalUriHandler.current
+                        TextButton(onClick = { runCatching { uri.openUri(link) } }) { Text("Open the router's page", color = Palette.Link) }
+                    }
+                }
             }
         }
     }
