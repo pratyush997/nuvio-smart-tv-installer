@@ -41,6 +41,8 @@ import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
 import tv.nuvio.installer.core.SamsungTvStatus
 import tv.nuvio.installer.core.TizenInstaller
+import tv.nuvio.installer.core.TizenStudioCertificate
+import tv.nuvio.installer.core.TizenStudioPasswordException
 import tv.nuvio.installer.core.TvDiscovery
 import tv.nuvio.installer.core.TvInfo
 import tv.nuvio.installer.core.TvNetwork
@@ -79,8 +81,20 @@ const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 private const val PREF_BACKUP_PASSWORD = "backupPassword"
 
-/** A protected backup was picked for import; the UI asks for its password. */
-class ImportPasswordRequest(val bytes: ByteArray, val wrongPassword: Boolean)
+/** A picked certificate file needs a password; the UI asks for it. */
+sealed class ImportPasswordRequest(val wrongPassword: Boolean) {
+    /** A protected backup made by this app. */
+    class Backup(val bytes: ByteArray, wrongPassword: Boolean) : ImportPasswordRequest(wrongPassword)
+
+    /** A Tizen Studio author.p12 + distributor.p12; [part] says which file the password is for. */
+    class TizenStudio(
+        val author: ByteArray,
+        val distributor: ByteArray,
+        val part: TizenStudioCertificate.Part,
+        val authorPassword: String?,
+        wrongPassword: Boolean,
+    ) : ImportPasswordRequest(wrongPassword)
+}
 const val PREF_APP_NOTIFIED_TAG = "appNotifiedTag"
 const val PREF_TV_ID = "tvId"
 const val PREF_TV_NAME = "tvName"
@@ -658,30 +672,69 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * Imports a desktop-installer certificate .json, or a backup made by this app. A protected
-     * backup is tried with this phone's backup password first, then the user is asked for it.
+     * Imports what the user picked: a desktop-installer certificate .json, a backup made by this
+     * app, or the author.p12 and distributor.p12 from Tizen Studio. A protected backup is tried
+     * with this phone's backup password first, then the user is asked for it.
      */
-    fun importIdentities(uri: Uri) {
+    fun importIdentities(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         viewModelScope.launch {
-            val bytes = try {
-                withContext(Dispatchers.IO) {
-                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: throw InstallerException("Could not read the selected file.")
-                }
+            val files = try {
+                withContext(Dispatchers.IO) { uris.map { displayName(it) to readUri(it) } }
             } catch (e: Exception) {
                 outcome = Outcome(OutcomeKind.ERROR, "Import failed", e.message ?: "Import failed.")
                 return@launch
             }
-            importBackup(bytes, backupPassword, askOnWrongPassword = false)
+            val p12 = files.filter { it.first.endsWith(".p12", ignoreCase = true) || it.first.endsWith(".pfx", ignoreCase = true) }
+            when {
+                p12.size == 2 && files.size == 2 -> {
+                    val (first, second) = p12
+                    val authorFirst = TizenStudioCertificate.authorFirst(first.first, second.first)
+                    if (authorFirst == null) {
+                        outcome = Outcome(
+                            OutcomeKind.ERROR, "Import failed",
+                            "Could not tell which file is author.p12 and which is distributor.p12. Keep their original names and pick both again.",
+                        )
+                        return@launch
+                    }
+                    val (author, distributor) = if (authorFirst) first.second to second.second else second.second to first.second
+                    importTizenStudio(author, distributor, authorPassword = null, distributorPassword = null)
+                }
+                p12.isNotEmpty() -> outcome = Outcome(
+                    OutcomeKind.ERROR, "Pick both files",
+                    "A Tizen Studio certificate has two files. Tap Import again and select both author.p12 and distributor.p12 " +
+                        "from the certificate profile folder (long-press the first file, then tap the second).",
+                )
+                files.size > 1 -> outcome = Outcome(OutcomeKind.ERROR, "Pick one file", "Pick one certificate file or backup at a time.")
+                else -> importBackup(files.single().second, backupPassword, askOnWrongPassword = false)
+            }
         }
     }
+
+    private fun readUri(uri: Uri): ByteArray =
+        getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw InstallerException("Could not read the selected file.")
+
+    private fun displayName(uri: Uri): String = runCatching {
+        getApplication<Application>().contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull() ?: uri.lastPathSegment.orEmpty()
 
     /** Called from the password prompt; null cancels. */
     fun answerImportPassword(password: String?) {
         val request = importPasswordRequest ?: return
         importPasswordRequest = null
         if (password == null) return
-        viewModelScope.launch { importBackup(request.bytes, password, askOnWrongPassword = true) }
+        viewModelScope.launch {
+            when (request) {
+                is ImportPasswordRequest.Backup -> importBackup(request.bytes, password, askOnWrongPassword = true)
+                is ImportPasswordRequest.TizenStudio -> when (request.part) {
+                    TizenStudioCertificate.Part.AUTHOR -> importTizenStudio(request.author, request.distributor, password, null)
+                    TizenStudioCertificate.Part.DISTRIBUTOR -> importTizenStudio(request.author, request.distributor, request.authorPassword, password)
+                }
+            }
+        }
     }
 
     private suspend fun importBackup(bytes: ByteArray, password: String?, askOnWrongPassword: Boolean) {
@@ -695,7 +748,36 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             log.add(LogLine(LogLevel.SUCCESS, "Imported $count certificate file(s)."))
         } catch (e: BackupPasswordException) {
             // The saved password did not open it (a backup from another phone): ask without calling it wrong.
-            importPasswordRequest = ImportPasswordRequest(bytes, wrongPassword = e.wrongPassword && askOnWrongPassword)
+            importPasswordRequest = ImportPasswordRequest.Backup(bytes, wrongPassword = e.wrongPassword && askOnWrongPassword)
+        } catch (e: Exception) {
+            outcome = Outcome(OutcomeKind.ERROR, "Import failed", e.message ?: "Import failed.")
+        }
+    }
+
+    private suspend fun importTizenStudio(author: ByteArray, distributor: ByteArray, authorPassword: String?, distributorPassword: String?) {
+        try {
+            val saved = withContext(Dispatchers.IO) {
+                TizenStudioCertificate.import(identityStore, author, distributor, authorPassword, distributorPassword) {
+                    certificates.authorities(events)
+                }
+            }
+            refreshIdentities()
+            val duids = saved.map { it.duid }
+            val current = tvInfo?.duid
+            val forThisTv = when {
+                current == null -> ""
+                current in duids -> " It covers the TV you selected."
+                else -> " None of them is the TV you selected (DUID $current): add that DUID to the certificate in Tizen Studio."
+            }
+            outcome = Outcome(
+                OutcomeKind.SUCCESS, "Tizen Studio certificate imported",
+                "Saved for ${duids.size} TV${if (duids.size == 1) "" else "s"} (${duids.joinToString()}).$forThisTv",
+            )
+            log.add(LogLine(LogLevel.SUCCESS, "Imported a Tizen Studio certificate for ${duids.joinToString()}."))
+        } catch (e: TizenStudioPasswordException) {
+            // The distributor password is asked for only when the author one does not open it.
+            val wrong = e.wrongPassword && (e.file == TizenStudioCertificate.Part.AUTHOR || distributorPassword != null)
+            importPasswordRequest = ImportPasswordRequest.TizenStudio(author, distributor, e.file, authorPassword, wrong)
         } catch (e: Exception) {
             outcome = Outcome(OutcomeKind.ERROR, "Import failed", e.message ?: "Import failed.")
         }
