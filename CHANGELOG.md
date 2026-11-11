@@ -25,6 +25,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **Several TVs**: the app keeps a list of your TVs. Each TV is a row at the top of the TV card, with its brand (Samsung or LG) and Nuvio version; tap a row to switch. Tap **+** next to "Your TVs" to set up the next one (the guide opens at the Developer Mode step). Each TV keeps its own address and Nuvio version. Automatic updates and "new version" notifications now cover every TV, one notification per TV; tapping it updates that TV. The bin icon on a row takes that TV off the list after you confirm (its certificate stays on the phone).
 
 ### Changed
+- The setup guide uses plainer words and one button per step. The TV step searches for TVs by itself; typing the TV's address is behind a small link. The last step leads with **Sign in with Samsung** and explains why in one line; importing a desktop-installer or Tizen Studio certificate is under **Other ways to set up this TV**.
+- The guide now says what happens if the backup file is lost, and that the app finds the TV again when its address changes. The main screen shows a short note when that happens.
 - The version menu fits on screen without scrolling: it lists the 5 newest versions (**Older versions** shows the rest) and marks the one you picked with a check.
 
 ## [1.3.1] - 2026-11-10

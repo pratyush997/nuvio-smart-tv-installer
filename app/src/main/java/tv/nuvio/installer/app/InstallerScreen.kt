@@ -520,6 +520,12 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
 
         TvIpField(vm, enabled = !busy)
         TvFinder(vm)
+        vm.tvMovedFrom?.let {
+            Text(
+                "Your TV got a new address from the router. The app found it again, nothing to do.",
+                color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        }
 
         val (dotColor, statusText) = when (vm.tvState) {
             TvState.UNKNOWN -> Palette.Faint to "Not checked yet"
@@ -876,7 +882,7 @@ internal fun TvIpField(vm: InstallerViewModel, enabled: Boolean) {
 
 /** "Find my TV": scans the Wi-Fi and lists the Samsung TVs that answered; tapping one uses it. */
 @Composable
-internal fun TvFinder(vm: InstallerViewModel) {
+internal fun TvFinder(vm: InstallerViewModel, showButton: Boolean = true) {
     val found = vm.foundTvs
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -884,7 +890,7 @@ internal fun TvFinder(vm: InstallerViewModel) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.Muted)
                 Spacer(Modifier.width(10.dp))
                 Text("Looking for TVs on this Wi-Fi…", color = Palette.Muted, fontSize = 13.sp)
-            } else {
+            } else if (showButton) {
                 TextButton(onClick = { vm.scanForTvs() }, enabled = vm.busy == null) {
                     Icon(Icons.Filled.Search, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))

@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,7 +66,11 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
     val connected = vm.tvState == TvState.ONLINE
     val focus = LocalFocusManager.current
     val scroll = rememberScrollState()
-    LaunchedEffect(step) { scroll.scrollTo(0) }
+    LaunchedEffect(step) {
+        scroll.scrollTo(0)
+        // The "find your TV" step looks for TVs as soon as it opens.
+        if (step == 4 && vm.tvIp.isBlank() && vm.foundTvs == null) vm.scanForTvs()
+    }
     BackHandler { if (step > 0) step-- else vm.closeGuide() }
 
     Column(Modifier.fillMaxSize().background(Palette.Background)) {
@@ -116,16 +121,25 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
                     3 -> GradientButton("The TV is back on", enabled = true, onClick = next, modifier = Modifier.weight(1f))
                     4 -> when {
                         connected -> GradientButton("Next", enabled = !busy, onClick = next, modifier = Modifier.weight(1f))
+                        vm.scanning -> GradientButton("Looking for your TV…", enabled = false, onClick = {}, modifier = Modifier.weight(1f))
                         busy -> GradientButton("Checking…", enabled = false, onClick = {}, modifier = Modifier.weight(1f))
+                        vm.tvIp.isBlank() -> GradientButton(
+                            if (vm.foundTvs == null) "Find my TV" else "Look again",
+                            enabled = true, onClick = { vm.scanForTvs() }, modifier = Modifier.weight(1f),
+                        )
                         else -> GradientButton(
-                            "Check connection", enabled = vm.tvIp.isNotBlank(),
+                            "Try again", enabled = true,
                             onClick = { focus.clearFocus(); vm.checkTv() }, modifier = Modifier.weight(1f),
                         )
                     }
-                    else -> if (vm.source != null && connected) {
-                        GradientButton(vm.primaryLabel, enabled = !busy, onClick = { vm.closeGuide(); vm.install() }, modifier = Modifier.weight(1f))
-                    } else {
-                        GradientButton("Finish", enabled = true, onClick = vm::closeGuide, modifier = Modifier.weight(1f))
+                    else -> when {
+                        vm.source == null || !connected -> GradientButton("Finish", enabled = true, onClick = vm::closeGuide, modifier = Modifier.weight(1f))
+                        vm.hasIdentityForTv -> GradientButton(
+                            vm.primaryLabel, enabled = !busy, onClick = { vm.closeGuide(); vm.install() }, modifier = Modifier.weight(1f),
+                        )
+                        else -> GradientButton(
+                            "Sign in with Samsung", enabled = !busy, onClick = { vm.closeGuide(); vm.install() }, modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -177,7 +191,7 @@ private fun NeedsStep(vm: InstallerViewModel) {
     Panel {
         Bullet("Your Samsung TV and its remote")
         Bullet("This phone and the TV on the same Wi-Fi")
-        Bullet("A Samsung account (free). You sign in once, near the end.")
+        Bullet("A Samsung account. It's free, and you sign in only once.")
     }
     Panel {
         SectionTitle("This phone")
@@ -186,7 +200,7 @@ private fun NeedsStep(vm: InstallerViewModel) {
             StatusDot(if (onNetwork) Palette.Success else Palette.Error)
             Spacer(Modifier.width(10.dp))
             Text(
-                if (onNetwork) "On Wi-Fi · IP ${vm.phoneIp}" else "Not on Wi-Fi. Connect to the same Wi-Fi as the TV first.",
+                if (onNetwork) "On Wi-Fi" else "Not on Wi-Fi. Connect to the same Wi-Fi as the TV first.",
                 color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp,
             )
         }
@@ -195,12 +209,12 @@ private fun NeedsStep(vm: InstallerViewModel) {
 
 @Composable
 private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
-    GuideTitle("Turn on Developer Mode", "Do this on the TV, with the TV remote.")
+    GuideTitle("Turn on Developer Mode", "On the TV, with the TV remote. This lets the TV accept Nuvio from your phone.")
     Panel {
         GuideStep(1, "Press Home and open Apps.")
         GuideStep(2, "Press 1 2 3 4 5 on the remote. No number keys? Press the 123 button and pick the numbers on screen.")
         GuideStep(3, "Switch Developer Mode to On.")
-        GuideStep(4, "In Host PC IP, type this phone's IP:")
+        GuideStep(4, "In Host PC IP, type this number:")
         Row(
             Modifier
                 .padding(start = 36.dp)
@@ -222,7 +236,7 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
         }
         GuideStep(5, "Select OK.")
     }
-    Note("If this phone's IP changes later, the app notices and tells you the new number to type.")
+    Note("This number is your phone's address on the Wi-Fi. If it changes one day, the app tells you the new one to type.")
 }
 
 @Composable
@@ -238,76 +252,107 @@ private fun PowerCycleStep() {
 
 @Composable
 private fun TvAddressStep(vm: InstallerViewModel) {
-    GuideTitle("Connect to the TV", "The app checks the phone's IP, the TV's IP and Developer Mode for you.")
+    var typeAddress by rememberSaveable { mutableStateOf(false) }
+    val nothingFound = vm.foundTvs?.isEmpty() == true
+    GuideTitle("Find your TV", "Make sure the TV is on, then tap it in the list.")
     Panel {
-        GuideStep(1, "Tap Find my TV and pick your TV from the list.")
-        TvFinder(vm)
-        GuideStep(2, "Not listed? On the TV open Settings › General (or Connection) › Network › Network Status › IP Settings, and type the IP shown there:")
-        TvIpField(vm, enabled = vm.busy == null)
+        TvFinder(vm, showButton = false)
         when (vm.tvState) {
             TvState.CHECKING -> Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(Palette.Warning, pulsing = true)
                 Spacer(Modifier.width(10.dp))
                 Text("Checking…", color = Palette.Text, fontSize = 14.sp)
             }
-            TvState.ONLINE, TvState.OFFLINE -> vm.ipReport?.let { IpReportView(it) }
+            TvState.ONLINE -> Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(Palette.Success)
+                Spacer(Modifier.width(10.dp))
+                Text("Connected" + vm.tvName.takeIf { it.isNotBlank() }?.let { " to $it" }.orEmpty(), color = Palette.Text, fontSize = 14.sp)
+            }
+            TvState.OFFLINE -> vm.ipReport?.let { IpReportView(it) }
             TvState.UNKNOWN -> Unit
         }
     }
+    // Typing the address is the fallback: hidden until asked for, or until the search finds nothing.
+    if (typeAddress || nothingFound) {
+        Panel {
+            Text(
+                "On the TV, open Settings › General (or Connection) › Network › Network Status › IP Settings. Type the IP address shown there:",
+                color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+            TvIpField(vm, enabled = vm.busy == null)
+        }
+    } else {
+        SubtleLink("TV not in the list? Type its address") { typeAddress = true }
+    }
+    Note("If the router gives your TV a new address one day, the app finds it again by itself.")
 }
 
 @Composable
 private fun SamsungAccountStep(vm: InstallerViewModel, onImport: () -> Unit) {
     val uri = LocalUriHandler.current
-    val installed = vm.installedVersion
+    var otherWays by rememberSaveable { mutableStateOf(false) }
     if (vm.hasIdentityForTv) {
-        GuideTitle("You're ready", "The certificate for this TV is already saved, so no Samsung sign-in is needed.")
-    } else {
-        GuideTitle(
-            "Sign in with Samsung",
-            "Samsung TVs only run apps that are signed for that exact TV. The app gets that signature for you. You just sign in once.",
-        )
+        GuideTitle("You're ready", "This TV is already set up on this phone. No sign-in needed.")
+        Panel {
+            GuideStep(1, "Tap the button below.")
+            GuideStep(2, "Nuvio installs on your TV. It takes about a minute.")
+        }
+        AnotherTvNote(vm)
+        return
     }
+    GuideTitle(
+        "Sign in with Samsung",
+        "Samsung TVs only open apps that are made for that TV. Signing in lets this app do that for you. You do it once per TV.",
+    )
     Panel {
-        SectionTitle(if (installed != null) "What happens when you tap Update" else "What happens when you tap Install")
-        GuideStep(1, "The app downloads Nuvio.")
-        if (vm.hasIdentityForTv) {
-            GuideStep(2, "The app signs Nuvio with your TV's saved certificate.")
-        } else {
-            GuideStep(2, "Your browser opens Samsung's sign-in page. Sign in, then come back to this app.")
-            GuideStep(3, "Samsung creates a certificate just for your TV, and the app signs Nuvio with it.")
-        }
-        GuideStep(if (vm.hasIdentityForTv) 3 else 4, "Nuvio is installed on the TV. You can watch each step as it happens.")
-        if (!vm.hasIdentityForTv) {
-            GuideStep(5, "A backup of the certificate is saved to this phone's Downloads folder. Keep it: updates need it.")
-        }
+        GuideStep(1, "Tap Sign in with Samsung below.")
+        GuideStep(2, "Samsung's page opens. Sign in, then come back to this app.")
+        GuideStep(3, "Nuvio installs on your TV by itself. It takes about a minute.")
     }
-    if (!vm.hasIdentityForTv) {
+    WarningBox(
+        "Keep the backup file",
+        "The app saves a file to your phone's Downloads folder. Keep it: if you change or reset your phone, you need it to update Nuvio. " +
+            "Without it, Nuvio has to be removed from the TV and installed again.",
+    )
+    SubtleLink("No Samsung account? Create one, it's free") { uri.openUri("https://account.samsung.com/") }
+    if (!otherWays) {
+        SubtleLink("Other ways to set up this TV") { otherWays = true }
+    } else {
         Panel {
-            SectionTitle("No Samsung account?")
-            Text("Any Samsung account works, and it is free. Create one, then come back here.", color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp)
-            SoftButton("Create a Samsung account", null, enabled = true, onClick = { uri.openUri("https://account.samsung.com/") })
-        }
-        Panel {
-            SectionTitle("Used the desktop Nuvio installer before?")
+            SectionTitle("Installed Nuvio from a computer before?")
             Text(
-                "Import the certificate file it saved (samsung-tv-certificate-….json). Without it, the TV refuses updates to the Nuvio it installed.",
+                "Import the file the computer installer saved (samsung-tv-certificate-….json). Otherwise the TV refuses updates.",
                 color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
             )
-            SoftButton("Import certificate", null, enabled = vm.busy == null, onClick = onImport)
+            SoftButton("Import file", null, enabled = vm.busy == null, onClick = onImport)
         }
         Panel {
-            SectionTitle("Rather not sign in on this phone?")
+            SectionTitle("Made a certificate in Tizen Studio?")
             Text(
-                "Create a Samsung certificate in Tizen Studio's Certificate Manager on a computer, with your TV's DUID" +
-                    (vm.tvInfo?.duid?.let { " ($it)" } ?: "") + ". Copy author.p12 and distributor.p12 from its profile folder " +
-                    "to this phone, tap Import and select both files. The Samsung sign-in then happens in Tizen Studio, not here.",
+                "Copy author.p12 and distributor.p12 to this phone, then import both files together." +
+                    (vm.tvInfo?.duid?.let { " The certificate must include this TV's DUID: $it." } ?: ""),
                 color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
             )
-            SoftButton("Import Tizen Studio files", null, enabled = vm.busy == null, onClick = onImport)
+            SoftButton("Import files", null, enabled = vm.busy == null, onClick = onImport)
         }
     }
-    Note("You get a notification when a new Nuvio version is out. Tap it to update the TV.")
+    AnotherTvNote(vm)
+}
+
+@Composable
+private fun AnotherTvNote(vm: InstallerViewModel) {
+    Note(
+        if (vm.savedTvs.size > 1) "Nuvio updates for each of your TVs show up as notifications. Tap one to update that TV."
+        else "Have another TV? When this one is done, tap Add another TV on the main screen.",
+    )
+}
+
+/** A small text link for optional paths, so the main button stays the obvious choice. */
+@Composable
+private fun SubtleLink(text: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) {
+        Text(text, color = Palette.Link, fontSize = 14.sp)
+    }
 }
 
 // ---------------------------------------------------------------- pieces
