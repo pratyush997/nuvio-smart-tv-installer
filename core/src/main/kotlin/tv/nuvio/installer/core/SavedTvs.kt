@@ -16,6 +16,10 @@ enum class TvBrand(val label: String) { SAMSUNG("Samsung"), LG("LG") }
  * from the TV's info page and find it again after the router gives it a new address. [duid] and
  * [installedVersion] come from the installer connection; [installedVersion] is null when Nuvio
  * was not on the TV at the last check. [brand] is Samsung for every TV saved before LG support.
+ *
+ * [installedTag] and [installedBeta] are the GitHub release this app last installed on the TV.
+ * The TV itself only reports numbers ("1.4.0" for "1.4.0-beta.2"), so this is how the app knows
+ * a beta is on it. Null after installing from a file.
  */
 @Serializable
 data class SavedTv(
@@ -26,7 +30,24 @@ data class SavedTv(
     val duid: String? = null,
     val installedVersion: String? = null,
     val brand: TvBrand = TvBrand.SAMSUNG,
+    val installedTag: String? = null,
+    val installedBeta: Boolean = false,
 ) {
+    /**
+     * True while the TV runs a beta this app installed. When the TV reports another number,
+     * Nuvio was installed some other way and the TV counts as being on a full release.
+     */
+    val onBeta: Boolean
+        get() {
+            val version = installedVersion ?: return false
+            val tag = installedTag ?: return false
+            return installedBeta && TizenInstaller.compareVersions(version, tag) == 0
+        }
+
+    /** The installed version as the user knows it: the beta's full tag while [onBeta]. */
+    val installedLabel: String?
+        get() = if (onBeta) installedTag?.removePrefix("v") else installedVersion
+
     val remembered: RememberedTv get() = RememberedTv(id, name, model)
 
     /** What the user sees: the TV's name, or its address when it has none. */
@@ -63,7 +84,7 @@ object SavedTvs {
 
     /**
      * Adds [tv], or replaces the entry for the same TV (keeping its place in the list). Fields
-     * [tv] does not know (blank or null id, name, model, DUID) are kept from
+     * [tv] does not know (blank or null id, name, model, DUID, installed release) are kept from
      * the old entry; [installedVersion] always comes from [tv]. Another entry left at the same
      * address is dropped: that address now belongs to [tv].
      */
@@ -76,6 +97,8 @@ object SavedTvs {
                 model = tv.model.ifBlank { old.model },
                 id = tv.id?.takeIf { it.isNotBlank() } ?: old.id,
                 duid = tv.duid?.takeIf { it.isNotBlank() } ?: old.duid,
+                installedTag = tv.installedTag ?: old.installedTag,
+                installedBeta = if (tv.installedTag != null) tv.installedBeta else old.installedBeta,
             )
         }
         val result = ArrayList<SavedTv>(tvs.size + 1)

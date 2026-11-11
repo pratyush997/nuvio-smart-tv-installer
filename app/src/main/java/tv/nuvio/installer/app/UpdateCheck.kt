@@ -101,26 +101,28 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
     private fun checkNuvio(prefs: android.content.SharedPreferences) {
         val tvs = TvList.load(prefs).filter { it.installedVersion != null }
         if (tvs.isEmpty()) return
-        val latest = ReleaseChannel.latest(GitHubReleases().recent(), beta = prefs.getBoolean(PREF_BETA_CHANNEL, false)) ?: return
+        val releases = GitHubReleases().recent()
         val store = IdentityStore(File(applicationContext.filesDir, "identities"))
         val wifi = onWifi()
-        for (tv in tvs) checkTv(prefs, tv, latest, store, wifi, nameTv = tvs.size > 1)
+        for (tv in tvs) checkTv(prefs, tv, releases, store, wifi, nameTv = tvs.size > 1)
     }
 
+    /** A TV on a beta (see [SavedTv.onBeta]) is told about newer betas too; other TVs only about full releases. */
     private fun checkTv(
         prefs: android.content.SharedPreferences,
         tv: SavedTv,
-        latest: Release,
+        releases: List<Release>,
         store: IdentityStore,
         onWifi: Boolean,
         nameTv: Boolean,
     ) {
-        val installed = tv.installedVersion ?: return
+        val installed = tv.installedLabel ?: return
+        val update = ReleaseChannel.updateFor(releases, tv) ?: return
         val duid = tv.duid
         val hasCertificate = if (duid != null) store.candidatesFor(duid).isNotEmpty() else store.all().any { it.second.isUsable }
-        val attemptsKey = "$PREF_AUTO_ATTEMPTS:${tv.key}:${latest.tag_name}"
+        val attemptsKey = "$PREF_AUTO_ATTEMPTS:${tv.key}:${update.tag_name}"
         val plan = AutoUpdate.plan(
-            installed, latest,
+            update,
             enabled = prefs.getBoolean(PREF_AUTO_UPDATE, false),
             tvIp = tv.ip,
             onWifi = onWifi,
@@ -136,13 +138,13 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
                     val version = plan.release.tag_name.removePrefix("v")
                     TvList.update(prefs) { list ->
                         list.map {
-                            if (SavedTvs.sameTv(it, tv)) it.copy(installedVersion = version)
+                            if (SavedTvs.sameTv(it, tv)) it.copy(installedVersion = version, installedTag = plan.release.tag_name, installedBeta = plan.release.prerelease)
                             else it
                         }
                     }
                     prefs.edit().remove(attemptsKey).apply()
                     if (prefs.getString("tvIp", null) == tv.ip) prefs.edit().putString(PREF_INSTALLED_VERSION, version).apply()
-                    UpdateCheck.notifyAutoUpdated(applicationContext, tv, label, installed, version)
+                    UpdateCheck.notifyAutoUpdated(applicationContext, tv, label, installed, UpdateCheck.versionName(plan.release))
                     return
                 }
                 prefs.edit().putInt(attemptsKey, prefs.getInt(attemptsKey, 0) + 1).apply()
@@ -157,7 +159,7 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
         // Before several TVs were supported, one "notified" mark covered the only TV.
         val notified = prefs.getString(key, null) ?: prefs.getString(PREF_NOTIFIED_TAG, null).takeIf { label == null }
         if (notified == release.tag_name) return
-        if (UpdateCheck.notify(applicationContext, tv, label, installed, release.tag_name, note, ReleaseNotes.summary(release.body))) {
+        if (UpdateCheck.notify(applicationContext, tv, label, installed, UpdateCheck.versionName(release), note, ReleaseNotes.summary(release.body))) {
             prefs.edit().putString(key, release.tag_name).apply()
         }
     }
@@ -262,6 +264,10 @@ object UpdateCheck {
 
     /** One "new version" notification per TV, so one TV's notification does not replace another's. */
     private fun tvNotificationId(tvKey: String) = 1000 + (tvKey.hashCode() and 0x7fff)
+
+    /** A Nuvio version as notifications show it: "1.3.11", or "1.4.0-beta.2 (beta)". */
+    fun versionName(release: Release): String =
+        release.tag_name.removePrefix("v") + if (release.prerelease) " (beta)" else ""
 
     /** "your TV", or the TV's name in quotes when the phone has several. */
     private fun tvName(label: String?) = if (label != null) "\"$label\"" else "your TV"
