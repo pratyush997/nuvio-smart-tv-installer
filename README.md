@@ -5,6 +5,7 @@
 **Samsung TVs · Android**
 
 [![Latest release](https://img.shields.io/github/v/release/pratyush997/nuvio-smart-tv-installer)](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/pratyush997/nuvio-smart-tv-installer/total)](https://github.com/pratyush997/nuvio-smart-tv-installer/releases)
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 
 An Android app that installs and updates [Nuvio TV](https://github.com/NuvioMedia/NuvioTVSmart) on a Samsung Tizen TV straight from your phone. No PC, no Tizen Studio.
