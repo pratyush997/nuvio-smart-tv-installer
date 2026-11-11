@@ -2,7 +2,7 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.0] - 2026-11-11
 
 ### Added
 - **Nuvio Legacy**: besides **Nuvio TV** (the official app, recommended), the app can install **Nuvio Legacy**, an unofficial native rewrite by a community developer ([iqui27/nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy)) that tends to run smoother on older TVs. Each has its own card. The first time you install Legacy, a note says who makes it, that TV Installer downloads it straight from that developer's GitHub releases without checking or testing them, and that it updates itself on the TV. The two apps install side by side; Legacy does not replace Nuvio TV. The app picks the right Legacy file for your TV's Tizen version (native `.tpk` for Tizen 4 and later; the `.wgt` build only when a release has no `.tpk` for your TV) and signs it with the same Samsung certificate, so no new sign-in. Legacy updates itself on the TV, so the app shows it as "Installed" without a version, and automatic updates and notifications stay for Nuvio TV only. You can also install a `.tpk` file you choose.
@@ -92,6 +92,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.4.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.4.0
 [1.3.1]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.1
 [1.3.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.0
 [1.2.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.2.0
