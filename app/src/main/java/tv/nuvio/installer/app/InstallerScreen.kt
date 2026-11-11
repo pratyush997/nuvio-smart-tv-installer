@@ -147,7 +147,9 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
     }
     var logOpen by rememberSaveable { mutableStateOf(false) }
     var aboutOpen by rememberSaveable { mutableStateOf(false) }
-    if (aboutOpen) AboutDialog(vm, onDismiss = { aboutOpen = false })
+    var bugReportOpen by rememberSaveable { mutableStateOf(false) }
+    if (aboutOpen) AboutDialog(vm, onDismiss = { aboutOpen = false }, onReport = { aboutOpen = false; bugReportOpen = true })
+    if (bugReportOpen) BugReportDialog(vm, copy, onDismiss = { bugReportOpen = false })
     vm.importPasswordRequest?.let { request ->
         val (title, message) = when (request) {
             is ImportPasswordRequest.Backup -> "Backup password" to
@@ -212,6 +214,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                         fixBelow = outcome.kind == OutcomeKind.ERROR && vm.ipReport?.fix != null,
                         onDismiss = vm::dismissOutcome,
                         onShowLog = { logOpen = true },
+                        onReport = { bugReportOpen = true },
                         onImport = { importCert.launch(arrayOf("*/*")) },
                         onUninstall = vm::uninstall,
                     )
@@ -919,7 +922,15 @@ private fun StepRow(title: String, state: Int, detail: String, progress: Float?)
 // ---------------------------------------------------------------- outcome
 
 @Composable
-private fun OutcomeCard(outcome: Outcome, fixBelow: Boolean, onDismiss: () -> Unit, onShowLog: () -> Unit, onImport: () -> Unit, onUninstall: () -> Unit) {
+private fun OutcomeCard(
+    outcome: Outcome,
+    fixBelow: Boolean,
+    onDismiss: () -> Unit,
+    onShowLog: () -> Unit,
+    onReport: () -> Unit,
+    onImport: () -> Unit,
+    onUninstall: () -> Unit,
+) {
     val (color, icon) = when (outcome.kind) {
         OutcomeKind.SUCCESS -> Palette.Success to Icons.Filled.Check
         OutcomeKind.ERROR -> Palette.Error to Icons.Filled.Close
@@ -953,7 +964,10 @@ private fun OutcomeCard(outcome: Outcome, fixBelow: Boolean, onDismiss: () -> Un
                 SoftButton("Import certificate", null, enabled = true, onClick = onImport, modifier = Modifier.weight(1f), tint = Palette.Warning)
                 SoftButton("Uninstall from TV", null, enabled = true, onClick = onUninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
             }
-            OutcomeKind.ERROR -> TextButton(onClick = onShowLog) { Text("Show details", color = color) }
+            OutcomeKind.ERROR -> Row {
+                TextButton(onClick = onShowLog) { Text("Show details", color = color) }
+                TextButton(onClick = onReport) { Text("Report this problem", color = Palette.Muted) }
+            }
             OutcomeKind.SUCCESS -> Unit
         }
     }
@@ -1150,7 +1164,7 @@ internal fun formatDate(instant: java.time.Instant): String =
 
 /** Popup: the app, who made it, its licence and update status, and links to the code and to report a problem. */
 @Composable
-private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit) {
+private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit, onReport: () -> Unit) {
     val uri = LocalUriHandler.current
     val repo = "https://github.com/${UpdateCheck.APP_REPO}"
     Dialog(onDismissRequest = onDismiss) {
@@ -1198,7 +1212,7 @@ private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit) {
             Spacer(Modifier.height(18.dp))
             GradientButton("View on GitHub", enabled = true, onClick = { uri.openUri(repo) })
             Spacer(Modifier.height(10.dp))
-            SoftButton("Report a problem", null, enabled = true, onClick = { uri.openUri("$repo/issues/new/choose") }, modifier = Modifier.fillMaxWidth())
+            SoftButton("Report a problem", null, enabled = true, onClick = onReport, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(16.dp))
             Text(
                 "Nuvio is made by NuvioMedia.",
@@ -1206,6 +1220,41 @@ private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit) {
             )
         }
     }
+}
+
+/** Shows the report before it goes anywhere: it ends up on a public GitHub page. */
+@Composable
+private fun BugReportDialog(vm: InstallerViewModel, copy: (String) -> Unit, onDismiss: () -> Unit) {
+    val (text, url) = remember { vm.bugReport() }
+    val uri = LocalUriHandler.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Report a problem") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "This opens a GitHub issue with the details below filled in. Issues are public: TV IDs, tokens and e-mail " +
+                        "addresses are already taken out, but check it first. You need a GitHub account to send it.",
+                    fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                Text(
+                    text,
+                    color = Palette.Muted, fontSize = 11.sp, lineHeight = 15.sp, fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(RoundedCornerShape(10.dp))
+                        .background(Palette.SurfaceHigh).verticalScroll(rememberScrollState()).padding(10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { uri.openUri(url); onDismiss() }) { Text("Open GitHub issue") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { copy(text) }) { Text("Copy") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable
