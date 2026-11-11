@@ -16,6 +16,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **Tizen Studio certificates**: if you would rather not sign in with Samsung on the phone, create a Samsung certificate in Tizen Studio's Certificate Manager, then tap **Import** and select both `author.p12` and `distributor.p12`. The app asks for the profile's password and saves the certificate for every TV (DUID) it lists.
 - **Update Nuvio automatically** (TV card, off by default): when a new Nuvio version is out, the twice-daily check installs it on the TV by itself, if the TV is on, the phone is on the same Wi-Fi and the TV's certificate is saved. It never opens the Samsung sign-in. You get a notification after each update; if it cannot update, you get the usual "tap to update" notification with the reason.
 - **What's new**: the TV card shows the release notes of the Nuvio version you picked (first points, with **Show all** and a link to GitHub). The "new version" notification lists the first changes too.
+- **Beta versions** (in the version menu, off by default): offers Nuvio pre-releases and treats the newest one as the latest, for the version picker, update notifications and automatic updates. With it off, pre-releases are no longer listed.
 
 ## [1.3.1] - 2026-11-10
 

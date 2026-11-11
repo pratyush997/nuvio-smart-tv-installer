@@ -692,9 +692,10 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
             }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            vm.releases.forEachIndexed { index, release ->
+            val latest = vm.latestRelease
+            vm.releases.forEach { release ->
                 DropdownMenuItem(
-                    text = { Text("Nuvio ${release.label}" + if (index == 0) "  (latest)" else "") },
+                    text = { Text("Nuvio ${release.label}" + if (release == latest) "  (latest)" else "") },
                     onClick = { vm.source = PackageSource.FromRelease(release); open = false },
                 )
             }
@@ -702,6 +703,19 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                 DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(); open = false })
             }
             HorizontalDivider()
+            DropdownMenuItem(
+                text = {
+                    Column {
+                        Text("Beta versions")
+                        Text(
+                            if (vm.betaChannel) "On: pre-releases are offered and installed" else "Off: only full releases",
+                            color = Palette.Muted, fontSize = 12.sp,
+                        )
+                    }
+                },
+                trailingIcon = { androidx.compose.material3.Switch(checked = vm.betaChannel, onCheckedChange = null) },
+                onClick = { vm.updateBetaChannel(!vm.betaChannel) },
+            )
             DropdownMenuItem(text = { Text("Choose a .wgt file…") }, onClick = { open = false; onPickFile() })
         }
     }
