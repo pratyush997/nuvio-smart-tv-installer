@@ -26,6 +26,8 @@ class TizenInstaller(
     /** Opens the Samsung account login page (in a browser) for [url]. */
     private val openLogin: (url: String) -> Unit,
     private val loginReturnUrl: String? = null,
+    /** Shared between installers so one Samsung sign-in covers several TVs. */
+    private val session: SamsungSession = SamsungSession(),
 ) {
     companion object {
         val NUVIO_IDS = listOf("NuvioTV001.NuvioTV", "NuvioTV001", "NuvioTV001.Nuvio", "Nuvio", "NuvioTV.NuvioTV", "NuvioTV")
@@ -224,7 +226,15 @@ class TizenInstaller(
     }
 
     private fun createIdentity(duid: String): SigningIdentity {
-        events.info("No certificate for this TV yet. Sign in with your Samsung account to create one.")
+        events.info("No certificate for this TV yet.")
+        val identity = session.withAccess(events, signIn = ::signIn) { access -> certificates.createIdentity(access, duid, events) }
+        identities.save(identity)
+        events.success("Samsung certificate created and saved for this TV. Back it up from the menu so future updates keep working.")
+        return identity
+    }
+
+    private fun signIn(): SamsungAccess {
+        events.info("Sign in with your Samsung account to create the certificate.")
         val server = SamsungLoginServer(returnUrl = loginReturnUrl)
         val access = server.use {
             it.start()
@@ -237,10 +247,7 @@ class TizenInstaller(
             }
         }
         events.success("Samsung login received.")
-        val identity = certificates.createIdentity(access, duid, events)
-        identities.save(identity)
-        events.success("Samsung certificate created and saved for this TV. Back it up from the menu so future updates keep working.")
-        return identity
+        return access
     }
 
     private fun upload(client: SdbClient, signed: File) {
