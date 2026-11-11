@@ -73,7 +73,7 @@ Tap the refresh button next to the TV IP. The app checks each of these and shows
 | Developer Mode is on | Apps › `1 2 3 4 5` › Developer Mode On, then restart at the plug |
 | Host PC IP matches the phone | Change Host PC IP to the phone's current IP, then restart at the plug |
 
-The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host PC IP you typed. Reserving a fixed IP for your phone in the router settings avoids this.
+The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host PC IP you typed. Reserving a fixed IP for your phone in the router settings avoids this; the app suggests it, with a link to the router's page, when it sees the phone's IP change.
 
 The **Activity log** at the bottom of the app shows every command and the TV's replies. Copy it into a bug report.
 
