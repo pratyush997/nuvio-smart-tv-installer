@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -118,6 +120,11 @@ import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.NuvioApp
+import tv.nuvio.installer.core.Fix
+import tv.nuvio.installer.core.MainAction
+import tv.nuvio.installer.core.ReadyCheck
+import tv.nuvio.installer.core.ReadyResult
+import tv.nuvio.installer.core.ReadyState
 
 // ---------------------------------------------------------------- palette
 
@@ -226,7 +233,6 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
         onDispose { view.keepScreenOn = false }
     }
 
-    val pickWgt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::selectFile) }
     val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.importIdentities(uris) }
     val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         uri?.let(vm::exportIdentities)
@@ -275,10 +281,17 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
         return
     }
 
-    // Progress and results go to the top of the screen, and the screen scrolls there, so they are never out of sight.
+    // Checks, progress and results go to the top of the screen, and the screen scrolls there, so they are never out of sight.
     val mainScroll = rememberScrollState()
-    val installing = vm.busy != null && vm.busy != "Checking TV"
-    LaunchedEffect(installing, vm.outcome) { if (installing || vm.outcome != null) mainScroll.animateScrollTo(0) }
+    val working = vm.busy != null && vm.busy != "Checking TV"
+    LaunchedEffect(working, vm.outcome) { if (working || vm.outcome != null) mainScroll.animateScrollTo(0) }
+    var certOpen by rememberSaveable { mutableStateOf(false) }
+    var pickingFor by rememberSaveable { mutableStateOf<NuvioApp?>(null) }
+    val pickPackage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val app = pickingFor
+        if (uri != null && app != null) vm.selectFile(app, uri)
+        pickingFor = null
+    }
 
     // Mobile-first: one column sized for phones; on larger screens the same column is centred.
     Column(Modifier.fillMaxSize().background(Palette.Background)) {
@@ -293,7 +306,8 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
             ) {
                 Header(onTheme = vm::nextThemeMode, onGuide = vm::openGuide, onAbout = { aboutOpen = true })
                 vm.appUpdate?.let { update -> AppUpdateBanner(update, onDismiss = vm::dismissAppUpdate) }
-                if (installing) ProgressCard(vm)
+                vm.checksApp?.let { app -> ChecklistCard(vm, app) }
+                if (working && !vm.checking) ProgressCard(vm)
                 vm.outcome?.let { outcome ->
                     OutcomeCard(
                         outcome = outcome,
@@ -302,32 +316,43 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                         onShowLog = { logOpen = true },
                         onReport = { bugReportOpen = true },
                         onImport = { importCert.launch(arrayOf("*/*")) },
-                        onUninstall = vm::uninstall,
+                        onUninstall = { vm.uninstall(outcome.app ?: NuvioApp.TV) },
                     )
                 }
-                TvCard(vm, onPickFile = { pickWgt.launch(arrayOf("*/*")) })
-                CertificateCard(
+                TvCard(vm)
+                NuvioApp.entries.forEach { app ->
+                    AppCard(vm, app, onPickFile = { pickingFor = app; pickPackage.launch(arrayOf("*/*")) })
+                }
+                MoreRow(
                     vm,
-                    enabled = !busy,
-                    onImport = { importCert.launch(arrayOf("*/*")) },
-                    onBackup = { exportCert.launch(vm.backupFileName) },
-                    onSignIn = vm::createCertificate,
+                    certOpen = certOpen,
+                    logOpen = logOpen,
+                    onCertificate = { certOpen = !certOpen },
+                    onActivity = { logOpen = !logOpen },
                 )
-                LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
+                if (certOpen) {
+                    CertificateCard(
+                        vm,
+                        enabled = !busy,
+                        onImport = { importCert.launch(arrayOf("*/*")) },
+                        onBackup = { exportCert.launch(vm.backupFileName) },
+                        onSignIn = { vm.createCertificate() },
+                    )
+                }
+                if (logOpen) LogCard(vm, open = true, onToggle = { logOpen = false }, copy = copy)
                 Spacer(Modifier.height(8.dp))
             }
         }
-        BottomBar(vm)
+        if (vm.checking || vm.busy == "Install") BottomBar(vm)
     }
+    if (vm.typeOnTvOpen) TypeOnTvDialog(vm)
 }
 
 internal val MaxContentWidth = 560.dp
 
-/** Primary action pinned to the bottom, within thumb reach. */
+/** Pinned to the bottom only while checks or an install run: where they are, in one line. */
 @Composable
 private fun BottomBar(vm: InstallerViewModel) {
-    val busy = vm.busy != null
-    val installing = vm.busy == "Install"
     HorizontalDivider(color = Palette.Outline)
     Column(
         Modifier
@@ -337,32 +362,31 @@ private fun BottomBar(vm: InstallerViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (installing) {
+            val total: Int
+            val done: Float
+            val text: String
+            if (vm.checking) {
+                val app = vm.checksApp ?: NuvioApp.TV
+                val current = vm.checkRunning ?: ReadyCheck.entries[vm.checks.size.coerceAtMost(ReadyCheck.entries.size - 1)]
+                total = ReadyCheck.entries.size
+                done = vm.checks.size + 0.5f
+                text = "Check ${current.ordinal + 1} of $total · ${current.title(app)}"
+            } else {
                 val stage = vm.stage
                 val step = (stage?.ordinal ?: 0) + 1
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (vm.waitingForLogin) "Waiting for Samsung login…" else "Step $step of ${InstallStage.entries.size} · ${(stage ?: InstallStage.PACKAGE).title}",
-                        color = Palette.Text, fontSize = 13.sp, modifier = Modifier.weight(1f),
-                    )
-                    vm.progress?.let { Text("${(it * 100).toInt()}%", color = Palette.Muted, fontSize = 13.sp) }
-                }
-                val fraction = ((step - 1) + (vm.progress ?: 0.5f)) / InstallStage.entries.size
-                LinearProgressIndicator(
-                    progress = { fraction.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
-                    color = Palette.Accent,
-                    trackColor = Palette.SurfaceHigh,
-                )
+                total = InstallStage.entries.size
+                done = (step - 1) + (vm.progress ?: 0.5f)
+                text = if (vm.waitingForLogin) "Waiting for Samsung login…" else "Step $step of $total · ${(stage ?: InstallStage.PACKAGE).title}"
             }
-            GradientButton(
-                text = when {
-                    installing -> "Installing…"
-                    busy -> "${vm.busy}…"
-                    else -> vm.primaryLabel
-                },
-                enabled = !busy && vm.source != null && vm.tvIp.isNotBlank(),
-                onClick = vm::install,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text, color = Palette.Text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                if (!vm.checking) vm.progress?.let { Text("${(it * 100).toInt()}%", color = Palette.Muted, fontSize = 13.sp) }
+            }
+            LinearProgressIndicator(
+                progress = { (done / total).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                color = Palette.Accent,
+                trackColor = Palette.SurfaceHigh,
             )
         }
     }
@@ -485,28 +509,48 @@ internal fun SoftButton(
     }
 }
 
-@Composable
-private fun InfoTile(label: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
-    Column(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Palette.SurfaceHigh)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(label.uppercase(), color = Palette.Faint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
-        content()
-    }
-}
-
 // ---------------------------------------------------------------- TV card (main)
 
+/**
+ * The selected TV in one line: name, status, Switch (the saved TVs) and +. The address field and
+ * Find my TV show only when there is no TV, or after "Change address". When the TV can't be
+ * reached: the fix steps, Check again and the setup guide.
+ */
 @Composable
-private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
+private fun TvCard(vm: InstallerViewModel) {
     val busy = vm.busy != null
+    val noTv = vm.tvIp.isBlank()
+    var switching by rememberSaveable { mutableStateOf(false) }
+    var editingAddress by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(vm.tvState) { if (vm.tvState == TvState.ONLINE) editingAddress = false }
+    val action = vm.mainAction
     Panel {
-        SectionTitle(if (vm.savedTvs.size > 1) "Your TVs" else "Your TV") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Palette.Accent.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(painterResource(R.drawable.ic_tv), contentDescription = null, tint = Palette.Link, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(tvTitle(vm), color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val (dotColor, statusText) = tvStatus(vm)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusDot(dotColor, pulsing = vm.tvState == TvState.CHECKING)
+                    Spacer(Modifier.width(8.dp))
+                    Text(statusText, color = Palette.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (vm.savedTvs.isNotEmpty()) {
+                TextButton(onClick = { switching = !switching }, enabled = !busy) {
+                    Text("Switch", color = Palette.Link)
+                    Icon(
+                        if (switching) Icons.Filled.KeyboardArrowUp else Icons.Filled.ArrowDropDown,
+                        contentDescription = null, tint = Palette.Link, modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             Box(
                 Modifier.size(40.dp).clip(CircleShape).background(Palette.Accent.copy(alpha = 0.12f))
                     .clickable(enabled = !busy, onClickLabel = "Add a TV", role = Role.Button, onClick = vm::addTv)
@@ -516,10 +560,18 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
                 Icon(Icons.Filled.Add, contentDescription = "Add a TV", tint = Palette.Link)
             }
         }
-        if (vm.savedTvs.isNotEmpty()) TvList(vm, enabled = !busy)
+        if (switching) TvList(vm, enabled = !busy, onPicked = { switching = false })
 
-        TvIpField(vm, enabled = !busy)
-        TvFinder(vm)
+        // The field stays while an address is typed or checked, until it belongs to a saved TV.
+        val newAddress = vm.currentTv == null && vm.tvState != TvState.ONLINE
+        if (noTv || newAddress || editingAddress) {
+            TvIpField(vm, enabled = !busy)
+            TvFinder(vm, showButton = action != MainAction.FindTv)
+        } else if (vm.tvState != TvState.CHECKING) {
+            TextButton(onClick = { editingAddress = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                Text("Change address · ${vm.tvIp}", color = Palette.Muted, fontSize = 13.sp)
+            }
+        }
         vm.tvMovedFrom?.let {
             Text(
                 "Your TV got a new address from the router. The app found it again, nothing to do.",
@@ -527,148 +579,258 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             )
         }
 
-        val (dotColor, statusText) = when (vm.tvState) {
-            TvState.UNKNOWN -> Palette.Faint to "Not checked yet"
-            TvState.CHECKING -> Palette.Warning to "Connecting…"
-            TvState.ONLINE -> Palette.Success to buildString {
-                append("Connected")
-                vm.tvName.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                vm.tvInfo?.platformVersion?.takeIf { it.isNotBlank() }?.let { append(" · Tizen $it") }
-            }
-            TvState.OFFLINE -> Palette.Error to "Not reachable"
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(dotColor, pulsing = vm.tvState == TvState.CHECKING)
-            Spacer(Modifier.width(10.dp))
-            Text(statusText, color = Palette.Text, fontSize = 14.sp)
-        }
-        if (vm.tvState == TvState.OFFLINE) {
+        // When the install checks stopped at a TV row, the checklist above shows the fix instead.
+        val fixInChecklist = vm.failedCheck?.check in TvChecks
+        if (vm.tvState == TvState.OFFLINE && !fixInChecklist) {
             val report = vm.ipReport
             if (report != null) IpReportView(report)
             else vm.tvError?.let { Text(it, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp) }
-            TextButton(onClick = vm::openGuide) { Text("Open the setup guide", color = Palette.Link) }
-        } else if (vm.tvIp.isBlank()) {
+        } else if (noTv && vm.foundTvs == null) {
             Text("Tap Find my TV, or type the TV's IP address.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
         }
-
-        AppChoice(vm, enabled = !busy)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            InfoTile("On TV", Modifier.weight(1f)) {
-                val installed = vm.selectedInstalledLabel
-                Text(
-                    when {
-                        vm.tvState != TvState.ONLINE -> "—"
-                        installed != null -> installed
-                        else -> "Not installed"
-                    },
-                    color = if (installed != null) Palette.Text else Palette.Muted, fontSize = 16.sp, fontWeight = FontWeight.Medium,
-                )
-            }
-            VersionTile(vm, Modifier.weight(1f), enabled = !busy, onPickFile = onPickFile)
+        when {
+            vm.checking -> Unit
+            action == MainAction.FindTv -> GradientButton(
+                if (vm.scanning) "Looking for TVs…" else if (vm.foundTvs == null) "Find my TV" else "Look again",
+                enabled = !busy && !vm.scanning, onClick = { vm.scanForTvs() },
+            )
+            action is MainAction.CheckAgain && action.app == null -> GradientButton(
+                when {
+                    vm.tvState == TvState.CHECKING -> "Checking…"
+                    vm.tvState == TvState.OFFLINE -> "Check again"
+                    else -> "Check TV"
+                },
+                enabled = !busy, onClick = vm::checkTv,
+            )
         }
-        (vm.source as? PackageSource.FromRelease)?.release?.let { ReleaseNotesView(it) }
-
-        val installed = vm.tvState == TvState.ONLINE && vm.selectedInstalled
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SoftButton("Open on TV", Icons.Filled.PlayArrow, enabled = !busy && installed, onClick = vm::launchOnTv, modifier = Modifier.weight(1f))
-            SoftButton("Uninstall", Icons.Filled.Delete, enabled = !busy && installed, onClick = vm::uninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
+        if (vm.tvState == TvState.OFFLINE && !fixInChecklist) {
+            TextButton(onClick = vm::openGuide) { Text("Setup guide", color = Palette.Link) }
         }
-        SoftButton(
-            "Type on TV", Icons.Filled.Edit, enabled = vm.tvState == TvState.ONLINE, onClick = vm::openTypeOnTv,
-            modifier = Modifier.fillMaxWidth(), tint = Palette.Link,
-        )
-        if (vm.selectedApp == NuvioApp.TV && vm.installedVersion != null) AutoUpdateRow(vm)
     }
-    if (vm.typeOnTvOpen) TypeOnTvDialog(vm)
 }
 
-// ---------------------------------------------------------------- app choice
+/** The checks about the TV itself (rows 2–5), whose fix is the TV card's address report. */
+private val TvChecks = setOf(ReadyCheck.TV, ReadyCheck.DEVELOPER_MODE, ReadyCheck.HOST_IP, ReadyCheck.CONNECTION)
+
+private fun tvTitle(vm: InstallerViewModel): String =
+    vm.currentTv?.label?.takeIf { it.isNotBlank() }
+        ?: vm.tvName.takeIf { it.isNotBlank() }
+        ?: "No TV yet"
+
+private fun tvStatus(vm: InstallerViewModel): Pair<Color, String> = when (vm.tvState) {
+    TvState.UNKNOWN -> Palette.Faint to if (vm.tvIp.isBlank()) "Not picked yet" else "Not checked yet"
+    TvState.CHECKING -> Palette.Warning to "Connecting…"
+    TvState.ONLINE -> Palette.Success to buildString {
+        append("Connected")
+        vm.tvInfo?.platformVersion?.takeIf { it.isNotBlank() }?.let { append(" · Tizen $it") }
+    }
+    TvState.OFFLINE -> Palette.Error to "Not reachable"
+}
+
+// ---------------------------------------------------------------- app cards
 
 /**
- * Which app the main button installs: two cards side by side, Nuvio TV first (recommended).
- * Picking Nuvio Legacy the first time shows who makes it before switching.
+ * One app: what is on the TV, one button, links (Open on TV, What's new, Version) and a ⋯ menu
+ * (Reinstall, Uninstall, Choose a file). The button is the highlighted one when
+ * [InstallerViewModel.mainAction] points at this app; otherwise it is a soft button.
  */
 @Composable
-private fun AppChoice(vm: InstallerViewModel, enabled: Boolean) {
-    var notice by rememberSaveable { mutableStateOf(false) }
+private fun AppCard(vm: InstallerViewModel, app: NuvioApp, onPickFile: () -> Unit) {
+    val busy = vm.busy != null
+    val online = vm.tvState == TvState.ONLINE
     val tizen = vm.tvInfo?.platformVersion
-    val legacySupported = NuvioApp.LEGACY.supports(tizen)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("APP", color = Palette.Faint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-            AppCard(
-                title = NuvioApp.TV.label,
-                lines = listOf("Official app"),
-                badge = "Recommended",
-                onTv = vm.tvInfo?.app(NuvioApp.TV) != null,
-                selected = vm.selectedApp == NuvioApp.TV,
-                enabled = enabled,
-                onClick = { vm.selectApp(NuvioApp.TV) },
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            )
-            AppCard(
-                title = NuvioApp.LEGACY.label,
-                lines = listOf(if (legacySupported) "Community app, faster on older TVs" else "Not available for this TV"),
-                badge = null,
-                onTv = vm.tvInfo?.app(NuvioApp.LEGACY) != null,
-                selected = vm.selectedApp == NuvioApp.LEGACY,
-                enabled = enabled && legacySupported,
-                onClick = { if (vm.legacyNoticeSeen) vm.selectApp(NuvioApp.LEGACY) else notice = true },
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            )
+    val supported = !online || app.supports(tizen)
+    val installed = online && vm.isInstalled(app)
+    val opens = vm.opensOnTv(app)
+    val source = vm.source(app)
+    val release = (source as? PackageSource.FromRelease)?.release
+    var notice by rememberSaveable { mutableStateOf(false) }
+    var notesOpen by rememberSaveable(app.name) { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val highlighted = when (val action = vm.mainAction) {
+        is MainAction.Update -> action.app == app
+        is MainAction.Open -> action.app == app
+        is MainAction.Install -> action.app == app
+        else -> false
+    }
+    // The first Legacy install shows who makes it.
+    val install = { if (app == NuvioApp.LEGACY && !vm.legacyNoticeSeen) notice = true else vm.install(app) }
+
+    Panel(Modifier.alpha(if (online) 1f else 0.6f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(app.label, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (app == NuvioApp.TV) Text("Recommended", color = Palette.Success, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            else Text("Community app", color = Palette.Muted, fontSize = 12.sp)
         }
-        when {
-            vm.selectedApp == NuvioApp.LEGACY -> Text(
-                "Nuvio Legacy is not made or checked by TV Installer. It comes straight from its developer's GitHub page and updates itself on the TV.",
-                color = Palette.Muted, fontSize = 12.sp, lineHeight = 17.sp,
-            )
-            legacySupported && NuvioApp.isOlderTv(tizen) -> Text(
-                "Your TV is from 2018 to 2020. Nuvio Legacy may run smoother on it.",
-                color = Palette.Muted, fontSize = 12.sp, lineHeight = 17.sp,
-            )
+        Text(
+            when {
+                !online -> "Connect your TV first"
+                !supported -> "Needs a 2018 or newer TV"
+                app == NuvioApp.TV && installed -> buildString {
+                    append("${vm.installedLabel(app)} on TV")
+                    if (vm.updateAvailable) vm.latestRelease(app)?.let { append(" · ${it.tag_name} is out") }
+                }
+                installed -> "On this TV · updates itself"
+                else -> "Not on this TV"
+            },
+            color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+        )
+        if (app == NuvioApp.LEGACY && online && supported && !installed && NuvioApp.isOlderTv(tizen)) {
+            Text("Your TV is from 2018 to 2020. Nuvio Legacy may run smoother on it.", color = Palette.Muted, fontSize = 12.sp, lineHeight = 17.sp)
         }
+        if (online && supported) {
+            val label = if (opens) "Open on TV" else vm.buttonLabel(app)
+            val onClick: () -> Unit = if (opens) ({ vm.launchOnTv(app) }) else install
+            val enabled = !busy && (opens || source != null)
+            if (highlighted) GradientButton(label, enabled = enabled, onClick = onClick)
+            else SoftButton(label, null, enabled = enabled, onClick = onClick, modifier = Modifier.fillMaxWidth(), tint = Palette.Link)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                if (installed && !opens) LinkButton("Open on TV", enabled = !busy) { vm.launchOnTv(app) }
+                if (release != null && !release.body.isNullOrBlank()) {
+                    LinkButton(if (notesOpen) "Hide what's new" else "What's new") { notesOpen = !notesOpen }
+                }
+                if (supported) VersionMenu(vm, app, enabled = !busy)
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, enabled = !busy) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More for ${app.label}", tint = Palette.Muted)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (installed && opens) DropdownMenuItem(text = { Text("Reinstall") }, onClick = { menuOpen = false; install() })
+                    if (installed) DropdownMenuItem(text = { Text("Uninstall") }, onClick = { menuOpen = false; vm.uninstall(app) })
+                    val fileKind = if (app == NuvioApp.TV) ".wgt" else ".tpk or .wgt"
+                    DropdownMenuItem(text = { Text("Choose a $fileKind file…") }, onClick = { menuOpen = false; onPickFile() })
+                }
+            }
+        }
+        if (notesOpen && release != null) ReleaseNotesView(release)
+        if (app == NuvioApp.TV && installed && vm.installedVersion != null) AutoUpdateRow(vm)
     }
     if (notice) {
         LegacyNoticeDialog(
-            onContinue = { notice = false; vm.acknowledgeLegacyNotice(); vm.selectApp(NuvioApp.LEGACY) },
+            onContinue = { notice = false; vm.acknowledgeLegacyNotice(); vm.install(NuvioApp.LEGACY) },
             onDismiss = { notice = false },
         )
     }
 }
 
+/** A small text button for the links under an app's main button. */
 @Composable
-private fun AppCard(
-    title: String,
-    lines: List<String>,
-    badge: String?,
-    onTv: Boolean,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(14.dp)
-    Column(
-        modifier
-            .clip(shape)
-            .background(if (selected) Palette.Accent.copy(alpha = 0.12f) else Palette.SurfaceHigh)
-            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Accent else Palette.Outline, shape)
-            .clickable(enabled = enabled && !selected, role = Role.RadioButton, onClick = onClick)
-            .alpha(if (enabled || selected) 1f else 0.5f)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.Link, modifier = Modifier.size(18.dp))
-        }
-        if (badge != null) Text(badge, color = Palette.Success, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        lines.forEach { Text(it, color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp) }
-        if (onTv) Text("On this TV", color = Palette.Faint, fontSize = 12.sp)
+private fun LinkButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    TextButton(onClick = onClick, enabled = enabled, contentPadding = PaddingValues(horizontal = 8.dp)) {
+        Text(text, color = if (enabled) Palette.Link else Palette.Faint, fontSize = 13.sp, maxLines = 1)
     }
 }
 
-/** Shown once, the first time Nuvio Legacy is picked: who makes it, that nobody here checks it, and that it sits next to Nuvio TV. */
+// ---------------------------------------------------------------- install checks
+
+/** The install checks for [app], one row each; on a failure, how to fix it and Check again. */
+@Composable
+private fun ChecklistCard(vm: InstallerViewModel, app: NuvioApp) {
+    val failed = vm.failedCheck.takeIf { !vm.checking }
+    Panel {
+        SectionTitle(if (failed != null) "Can't install ${app.label} yet" else "Getting ready…") {
+            if (!vm.checking) {
+                IconButton(onClick = vm::dismissChecks, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Palette.Muted, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        ReadyCheck.entries.forEach { check ->
+            val result = vm.checks.firstOrNull { it.check == check }
+            ReadyRow(check.title(app), result, running = result == null && vm.checkRunning == check)
+        }
+        if (failed != null) {
+            val tvRow = failed.check in TvChecks
+            val fix = vm.ipReport?.fix
+            if (tvRow && fix != null) FixBox(fix)
+            GradientButton("Check again", enabled = vm.busy == null, onClick = { vm.install(app) })
+            if (tvRow || failed.check == ReadyCheck.WIFI) {
+                TextButton(onClick = vm::openGuide) { Text("Setup guide", color = Palette.Link) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadyRow(title: String, result: ReadyResult?, running: Boolean) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            when {
+                running -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Palette.Accent)
+                result == null -> Box(Modifier.size(10.dp).clip(CircleShape).border(1.5.dp, Palette.Faint, CircleShape))
+                else -> {
+                    val (icon, tint) = when (result.state) {
+                        ReadyState.PASS -> Icons.Filled.Check to Palette.Success
+                        ReadyState.FAIL -> Icons.Filled.Close to Palette.Error
+                        ReadyState.UNSURE -> Icons.Filled.Info to Palette.Faint
+                        ReadyState.LATER -> Icons.Filled.Info to Palette.Link
+                    }
+                    Box(Modifier.size(22.dp).clip(CircleShape).background(tint.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = result.state.name.lowercase(), tint = tint, modifier = Modifier.size(15.dp))
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                color = if (result == null && !running) Palette.Faint else Palette.Text,
+                fontSize = 15.sp,
+                fontWeight = if (running || result?.state == ReadyState.FAIL) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            if (result != null && result.detail.isNotBlank()) {
+                Text(
+                    highlightIps(result.detail),
+                    color = if (result.state == ReadyState.FAIL) Palette.Text else Palette.Muted,
+                    fontSize = 12.sp, lineHeight = 16.sp,
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- more
+
+/** Less-used things, one tap away: Type on TV, Certificate & backup, Activity. */
+@Composable
+private fun MoreRow(vm: InstallerViewModel, certOpen: Boolean, logOpen: Boolean, onCertificate: () -> Unit, onActivity: () -> Unit) {
+    val certWarning = vm.certExpiresAt?.let { CertificateExpiry.state(it) != ExpiryState.VALID } == true
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (vm.tvState == TvState.ONLINE) MoreChip("Type on TV", open = null, onClick = vm::openTypeOnTv)
+        MoreChip("Certificate & backup", open = certOpen, onClick = onCertificate, warning = certWarning)
+        MoreChip("Activity", open = logOpen, onClick = onActivity)
+    }
+}
+
+/** [open] null: opens a dialog, no arrow. */
+@Composable
+private fun MoreChip(text: String, open: Boolean?, onClick: () -> Unit, warning: Boolean = false) {
+    Row(
+        Modifier.clip(RoundedCornerShape(50))
+            .background(if (open == true) Palette.Accent.copy(alpha = 0.12f) else Palette.SurfaceHigh)
+            .clickable(onClick = onClick)
+            .padding(start = 14.dp, end = if (open == null) 14.dp else 8.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (warning) {
+            Icon(Icons.Filled.Warning, contentDescription = "Needs attention", tint = Palette.Warning, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(text, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        if (open != null) {
+            Icon(
+                if (open) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = null, tint = Palette.Muted, modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/** Shown once, the first time Nuvio Legacy is installed: who makes it, that nobody here checks it, and that it sits next to Nuvio TV. */
 @Composable
 private fun LegacyNoticeDialog(onContinue: () -> Unit, onDismiss: () -> Unit) {
     val uri = LocalUriHandler.current
@@ -695,14 +857,14 @@ private fun LegacyNoticeDialog(onContinue: () -> Unit, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onContinue) { Text("Use Nuvio Legacy", fontWeight = FontWeight.SemiBold) } },
+        confirmButton = { TextButton(onClick = onContinue) { Text("Install Nuvio Legacy", fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
 /** The saved TVs, one row each: tap to switch, the bin asks before taking the TV off the list. */
 @Composable
-private fun TvList(vm: InstallerViewModel, enabled: Boolean) {
+private fun TvList(vm: InstallerViewModel, enabled: Boolean, onPicked: () -> Unit = {}) {
     val selected = vm.currentTv
     var removingKey by rememberSaveable { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -711,7 +873,7 @@ private fun TvList(vm: InstallerViewModel, enabled: Boolean) {
                 tv = tv,
                 selected = selected != null && SavedTvs.sameTv(tv, selected),
                 enabled = enabled,
-                onSelect = { vm.selectSavedTv(tv) },
+                onSelect = { vm.selectSavedTv(tv); onPicked() },
                 onRemove = { removingKey = tv.key },
             )
         }
@@ -960,40 +1122,44 @@ internal fun IpReportView(report: IpReport) {
                 Text(row.text, color = if (row.state == CheckState.FAIL) Palette.Text else Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
             }
         }
-        report.fix?.let { fix ->
-            Column(
-                Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(14.dp))
-                    .background(Palette.Warning.copy(alpha = 0.08f))
-                    .border(1.dp, Palette.Warning.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Warning, contentDescription = null, tint = Palette.Warning, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("How to fix it", color = Palette.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        report.fix?.let { FixBox(it, Modifier.padding(top = 6.dp)) }
+    }
+}
+
+/** "How to fix it": the reason, numbered steps and a tip. Shared by the TV card and the install checks. */
+@Composable
+internal fun FixBox(fix: Fix, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(Palette.Warning.copy(alpha = 0.08f))
+            .border(1.dp, Palette.Warning.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = Palette.Warning, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("How to fix it", color = Palette.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        fix.reason?.let { Text(highlightIps(it), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp) }
+        fix.steps.forEachIndexed { index, step ->
+            Row(verticalAlignment = Alignment.Top) {
+                Box(
+                    Modifier.size(22.dp).clip(CircleShape).background(Palette.Warning.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("${index + 1}", color = Palette.Warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
-                fix.reason?.let { Text(highlightIps(it), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp) }
-                fix.steps.forEachIndexed { index, step ->
-                    Row(verticalAlignment = Alignment.Top) {
-                        Box(
-                            Modifier.size(22.dp).clip(CircleShape).background(Palette.Warning.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("${index + 1}", color = Palette.Warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Text(highlightIps(step), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 1.dp))
-                    }
-                }
-                fix.tip?.let { tip ->
-                    HorizontalDivider(color = Palette.Warning.copy(alpha = 0.2f))
-                    Text(highlightIps(tip), color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
-                    fix.tipLink?.let { link ->
-                        val uri = LocalUriHandler.current
-                        TextButton(onClick = { runCatching { uri.openUri(link) } }) { Text("Open the router's page", color = Palette.Link) }
-                    }
-                }
+                Spacer(Modifier.width(10.dp))
+                Text(highlightIps(step), color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 1.dp))
+            }
+        }
+        fix.tip?.let { tip ->
+            HorizontalDivider(color = Palette.Warning.copy(alpha = 0.2f))
+            Text(highlightIps(tip), color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            fix.tipLink?.let { link ->
+                val uri = LocalUriHandler.current
+                TextButton(onClick = { runCatching { uri.openUri(link) } }) { Text("Open the router's page", color = Palette.Link) }
             }
         }
     }
@@ -1099,33 +1265,35 @@ private fun NoteLinesView(lines: List<NoteLine>) {
 /** Newest versions listed in the version menu before "Older versions". */
 private const val VERSIONS_SHOWN = 5
 
+/** "Version 1.4.0 ▾" under an app's button: picks which release (or picked file) the button installs. */
 @Composable
-private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boolean, onPickFile: () -> Unit) {
+private fun VersionMenu(vm: InstallerViewModel, app: NuvioApp, enabled: Boolean) {
     var open by remember { mutableStateOf(false) }
-    Box(modifier) {
-        InfoTile("Install", Modifier.fillMaxWidth(), onClick = if (enabled) ({ open = true }) else null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val text = when (val s = vm.source) {
-                    is PackageSource.FromRelease -> s.release.tag_name
-                    is PackageSource.FromFile -> s.name
-                    null -> if (vm.releasesError != null) "Unavailable" else "Loading…"
-                }
-                Text(text, color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose version", tint = Palette.Muted)
+    Box {
+        TextButton(onClick = { open = true }, enabled = enabled, contentPadding = PaddingValues(start = 8.dp, end = 2.dp)) {
+            val text = when (val s = vm.source(app)) {
+                is PackageSource.FromRelease -> "Version ${s.release.tag_name}"
+                is PackageSource.FromFile -> s.name
+                null -> if (vm.releasesError(app) != null) "Versions unavailable" else "Loading versions…"
             }
+            Text(
+                text, color = if (enabled) Palette.Link else Palette.Faint, fontSize = 13.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 170.dp),
+            )
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose version", tint = if (enabled) Palette.Link else Palette.Faint)
         }
         // Fixed width and at most VERSIONS_SHOWN rows, so the menu fits on screen without scrolling.
         var showAll by remember { mutableStateOf(false) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false; showAll = false }, modifier = Modifier.width(280.dp)) {
-            val latest = vm.latestRelease
-            val selected = (vm.source as? PackageSource.FromRelease)?.release
-            val all = vm.releases
+            val latest = vm.latestRelease(app)
+            val selected = (vm.source(app) as? PackageSource.FromRelease)?.release
+            val all = vm.releases(app)
             val shown = if (showAll) all else all.take(VERSIONS_SHOWN)
             shown.forEach { release ->
                 DropdownMenuItem(
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(releaseTitle(vm.selectedApp, release), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            Text(releaseTitle(app, release), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             val tag = listOfNotNull("latest".takeIf { release == latest }, "beta".takeIf { release.prerelease }).joinToString(" · ")
                             if (tag.isNotEmpty()) Text("  $tag", color = Palette.Muted, fontSize = 12.sp, maxLines = 1)
                         }
@@ -1133,7 +1301,7 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                     trailingIcon = {
                         if (release == selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.Text, modifier = Modifier.size(20.dp))
                     },
-                    onClick = { vm.source = PackageSource.FromRelease(release); open = false; showAll = false },
+                    onClick = { vm.chooseSource(app, PackageSource.FromRelease(release)); open = false; showAll = false },
                 )
             }
             if (!showAll && all.size > VERSIONS_SHOWN) {
@@ -1143,12 +1311,9 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                     onClick = { showAll = true },
                 )
             }
-            if (vm.releasesError != null) {
-                DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(); open = false })
+            if (vm.releasesError(app) != null) {
+                DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(app); open = false })
             }
-            HorizontalDivider()
-            val fileKind = if (vm.selectedApp == NuvioApp.TV) ".wgt" else ".tpk or .wgt"
-            DropdownMenuItem(text = { Text("Choose a $fileKind file…") }, onClick = { open = false; showAll = false; onPickFile() })
         }
     }
 }
@@ -1422,7 +1587,8 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
                     "(If you skip this, the sign-in happens during the first install.)",
                 color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
             )
-            GradientButton("Sign in with Samsung", enabled = enabled && connected, onClick = onSignIn)
+            // Soft, not gradient: the screen has one highlighted button, and this step is optional.
+            SoftButton("Sign in with Samsung", null, enabled = enabled && connected, onClick = onSignIn, modifier = Modifier.fillMaxWidth(), tint = Palette.Link)
             if (!connected) {
                 Text(
                     "Connect to your TV above first: the certificate is made for that TV.",
