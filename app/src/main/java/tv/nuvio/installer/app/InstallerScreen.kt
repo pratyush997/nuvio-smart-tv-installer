@@ -39,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -87,6 +88,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -100,6 +102,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import tv.nuvio.installer.core.SavedTv
+import tv.nuvio.installer.core.SavedTvs
+import tv.nuvio.installer.core.TvBrand
 import tv.nuvio.installer.core.TizenStudioCertificate
 import tv.nuvio.installer.core.NoteLine
 import tv.nuvio.installer.core.Release
@@ -499,7 +504,17 @@ private fun InfoTile(label: String, modifier: Modifier = Modifier, onClick: (() 
 private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
     val busy = vm.busy != null
     Panel {
-        SectionTitle("Your TV")
+        SectionTitle(if (vm.savedTvs.size > 1) "Your TVs" else "Your TV") {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(Palette.Accent.copy(alpha = 0.12f))
+                    .clickable(enabled = !busy, onClickLabel = "Add a TV", role = Role.Button, onClick = vm::addTv)
+                    .alpha(if (busy) 0.4f else 1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Add a TV", tint = Palette.Link)
+            }
+        }
+        if (vm.savedTvs.isNotEmpty()) TvList(vm, enabled = !busy)
 
         TvIpField(vm, enabled = !busy)
         TvFinder(vm)
@@ -556,6 +571,106 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
         if (vm.installedVersion != null) AutoUpdateRow(vm)
     }
     if (vm.typeOnTvOpen) TypeOnTvDialog(vm)
+}
+
+/** The saved TVs, one row each: tap to switch, the bin asks before taking the TV off the list. */
+@Composable
+private fun TvList(vm: InstallerViewModel, enabled: Boolean) {
+    val selected = vm.currentTv
+    var removingKey by rememberSaveable { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        vm.savedTvs.forEach { tv ->
+            TvRow(
+                tv = tv,
+                selected = selected != null && SavedTvs.sameTv(tv, selected),
+                enabled = enabled,
+                onSelect = { vm.selectSavedTv(tv) },
+                onRemove = { removingKey = tv.key },
+            )
+        }
+    }
+    removingKey?.let { key ->
+        val tv = SavedTvs.withKey(vm.savedTvs, key)
+        if (tv == null) {
+            LaunchedEffect(key) { removingKey = null }
+            return@let
+        }
+        RemoveTvDialog(
+            tv = tv,
+            onConfirm = { removingKey = null; vm.removeTv(tv) },
+            onDismiss = { removingKey = null },
+        )
+    }
+}
+
+@Composable
+private fun TvRow(tv: SavedTv, selected: Boolean, enabled: Boolean, onSelect: () -> Unit, onRemove: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) Palette.Accent.copy(alpha = 0.12f) else Palette.SurfaceHigh)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Palette.Accent else Palette.Outline, shape)
+            .clickable(enabled = enabled && !selected, onClick = onSelect)
+            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(10.dp))
+                .background(if (selected) Palette.Accent.copy(alpha = 0.18f) else Palette.Surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_tv), contentDescription = null,
+                tint = if (selected) Palette.Link else Palette.Muted, modifier = Modifier.size(22.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(tv.label, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandTag(tv.brand)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    tv.installedVersion?.let { "Nuvio $it" } ?: "No Nuvio yet",
+                    color = Palette.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        IconButton(onClick = onRemove, enabled = enabled) {
+            Icon(Icons.Filled.Delete, contentDescription = "Remove ${tv.label}", tint = Palette.Faint, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+/** "Samsung" or "LG", so a mixed household can tell the TVs apart. */
+@Composable
+internal fun BrandTag(brand: TvBrand) {
+    Box(
+        Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, Palette.Outline, RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    ) {
+        Text(brand.label, color = Palette.Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun RemoveTvDialog(tv: SavedTv, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = Palette.Error) },
+        title = { Text("Remove ${tv.label}?") },
+        text = {
+            Text(
+                "The app forgets this TV and stops updating Nuvio on it. Nuvio stays on the TV. " +
+                    "Its certificate stays on this phone, so adding the TV again needs no new sign-in.",
+                fontSize = 14.sp, lineHeight = 20.sp,
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Remove", color = Palette.Error, fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Types into the TV's on-screen keyboard from the phone (search, sign-in fields). */

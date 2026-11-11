@@ -39,8 +39,9 @@ import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
 import tv.nuvio.installer.core.ReleaseChannel
 import tv.nuvio.installer.core.ReleasePackage
-import tv.nuvio.installer.core.RememberedTv
 import tv.nuvio.installer.core.SamsungRemote
+import tv.nuvio.installer.core.SavedTv
+import tv.nuvio.installer.core.SavedTvs
 import tv.nuvio.installer.core.SamsungSession
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
@@ -146,7 +147,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     fun sendTextToTv(text: String, enter: Boolean) {
         if (typeOnTvSending || tvIp.isBlank()) return
         typeOnTvSending = true
-        val tokenKey = "remoteToken:" + (prefs.getString(PREF_TV_ID, null) ?: tvIp)
+        val tokenKey = "remoteToken:" + (currentTv?.id ?: prefs.getString(PREF_TV_ID, null) ?: tvIp)
         val saved = prefs.getString(tokenKey, null)
         typeOnTvStatus = if (saved == null) "If the TV asks whether to allow TV Installer, choose Allow." else "Sending…"
         viewModelScope.launch {
@@ -183,6 +184,24 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
 
     var tvIp by mutableStateOf(prefs.getString("tvIp", "").orEmpty())
         private set
+
+    /** Every TV set up from this phone, in the order they were added. */
+    var savedTvs by mutableStateOf(TvList.load(prefs))
+        private set
+
+    /** The selected TV's entry in [savedTvs], or null for an address not saved yet. */
+    val currentTv: SavedTv?
+        get() = SavedTvs.atIp(savedTvs, tvIp)
+
+    /** Where the setup guide opens: 0 for the full guide, later steps when adding another TV. */
+    var guideStartStep by mutableStateOf(0)
+        private set
+
+    /** The TV selected before "Add a TV", restored if the guide is closed without picking a new one. */
+    private var tvBeforeAdd: String? = null
+
+    /** The TV a notification asked to update (its [SavedTv.key]); selected before the update starts. */
+    private var pendingUpdateTv: String? = null
     private var phoneNetwork = phoneNetwork()
     var phoneIp by mutableStateOf(phoneNetwork.ip ?: "unknown")
         private set
@@ -323,11 +342,38 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         checkTv()
     }
 
+    /** Switches to another saved TV. */
+    fun selectSavedTv(tv: SavedTv) {
+        if (busy != null) return
+        updateTvIp(tv.ip)
+        checkTv()
+    }
+
+    /** Takes [tv] off the list. Its certificate stays on the phone, so adding it again needs no sign-in. */
+    fun removeTv(tv: SavedTv) {
+        if (busy != null) return
+        val wasSelected = currentTv?.let { SavedTvs.sameTv(it, tv) } == true
+        savedTvs = TvList.update(prefs) { SavedTvs.remove(it, tv) }
+        if (!wasSelected) return
+        val next = savedTvs.firstOrNull()
+        if (next != null) selectSavedTv(next) else updateTvIp("")
+    }
+
     /** Header button: Auto, then Light, then Dark, then Auto again. Saved for the next start. */
     fun nextThemeMode() {
         val next = ThemeMode.entries[(Palette.mode.ordinal + 1) % ThemeMode.entries.size]
         Palette.mode = next
         prefs.edit().putString(PREF_THEME_MODE, next.name).apply()
+    }
+
+    /** Opens the setup guide at the TV steps, with no TV selected, so another TV can be set up. */
+    fun addTv() {
+        if (busy != null) return
+        tvBeforeAdd = tvIp.takeIf { it.isNotBlank() }
+        updateTvIp("")
+        foundTvs = null
+        guideStartStep = 2
+        showGuide = true
     }
 
     /** Never throws: an offline phone just shows "couldn't check" in About. */
@@ -388,30 +434,49 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun openGuide() {
+        guideStartStep = 0
         showGuide = true
     }
 
     fun closeGuide() {
         showGuide = false
         prefs.edit().putBoolean("setupDone", true).apply()
+        // "Add a TV" was left without picking one: go back to the TV that was selected.
+        val previous = tvBeforeAdd
+        tvBeforeAdd = null
+        if (tvIp.isBlank() && previous != null) {
+            updateTvIp(previous)
+            checkTv()
+        }
     }
 
     /** Newest stable release, or the newest pre-release when there is no stable one. */
     val latestRelease: Release?
         get() = ReleaseChannel.latest(allReleases, betaChannel)
 
-    /** One-tap update (from the "new version" notification): installs the newest release. */
-    fun updateNow() {
+    /**
+     * One-tap update (from the "new version" notification): installs the newest release on the
+     * TV with [tvKey] (a [SavedTv.key]), or on the selected TV when null.
+     */
+    fun updateNow(tvKey: String? = null) {
         pendingUpdate = true
+        pendingUpdateTv = tvKey
         showGuide = false
         if (releasesError != null) loadReleases()
         tryPendingUpdate()
     }
 
     private fun tryPendingUpdate() {
-        if (!pendingUpdate || busy != null) return
-        val latest = latestRelease ?: return
+        if (!pendingUpdate || busy != null || allReleases.isEmpty()) return
+        val wanted = pendingUpdateTv?.let { SavedTvs.withKey(savedTvs, it) }
+        pendingUpdateTv = null
+        if (wanted != null && currentTv?.key != wanted.key) {
+            // Switch to that TV first; the check that follows calls this again.
+            selectSavedTv(wanted)
+            return
+        }
         pendingUpdate = false
+        val latest = latestRelease ?: return
         source = PackageSource.FromRelease(latest)
         val installed = installedVersion
         if (tvState == TvState.ONLINE && installed != null && TizenInstaller.compareVersions(installed, latest.tag_name) == 0) {
@@ -530,9 +595,13 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 var target = ip
                 var check = probeTv(ip, phone)
                 val phoneIp = phone.ip
-                if (check.info == null && check.status == null && phoneIp != null && TvNetwork.isValidIpv4(ip)) {
-                    // Nothing answered at the saved IP: the router may have given the TV a new one.
-                    val remembered = rememberedTv()
+                val expected = SavedTvs.atIp(savedTvs, ip)
+                // A different TV answers at this saved address: the router swapped the two TVs' addresses.
+                val otherTv = expected?.id != null && check.status?.id != null && check.status?.id != expected.id
+                var keepList = otherTv
+                if ((otherTv || check.info == null && check.status == null) && phoneIp != null && TvNetwork.isValidIpv4(ip)) {
+                    // The router may have given the TV a new address: look for it on the Wi-Fi.
+                    val remembered = expected?.remembered
                     if (remembered != null) {
                         val found = withContext(Dispatchers.IO) { TvDiscovery.scan(phoneIp, phone.prefixLength) }
                         foundTvs = found
@@ -543,9 +612,12 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                             tvIp = target
                             prefs.edit().putString("tvIp", target).apply()
                             check = probeTv(target, phone)
+                            keepList = false
                         }
                     }
                 }
+                // Not when the saved TV is missing and another one answered: that would replace it in the list.
+                if (!keepList && (check.status != null || check.info != null)) saveTv(target, check.status, check.info)
                 val report = TvNetwork.report(
                     phone.ip, phone.prefixLength, target, check.status, check.info != null, check.error,
                     prefs.getString("lastGoodPhoneIp", null), phone.gateway,
@@ -595,11 +667,22 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             .apply()
     }
 
-    private fun rememberedTv(): RememberedTv? {
-        val name = prefs.getString(PREF_TV_NAME, null).orEmpty()
-        val id = prefs.getString(PREF_TV_ID, null)
-        if (name.isEmpty() && id.isNullOrEmpty()) return null
-        return RememberedTv(id, name, prefs.getString(PREF_TV_MODEL, null).orEmpty())
+    /**
+     * Adds or updates the TV at [ip] in [savedTvs]. With [info] null (the installer connection
+     * failed), the saved Nuvio version is kept: it is unknown, not "not installed".
+     */
+    private fun saveTv(ip: String, status: SamsungTvStatus?, info: TvInfo?) {
+        val version = info?.installedApp?.get("app_version")?.takeIf { it.isNotBlank() }
+        val candidate = SavedTv(ip, status?.name.orEmpty(), status?.model.orEmpty(), status?.id, info?.duid)
+        savedTvs = TvList.update(prefs) { list ->
+            val old = list.firstOrNull { SavedTvs.sameTv(it, candidate) }
+            SavedTvs.upsert(
+                list,
+                candidate.copy(
+                    installedVersion = if (info != null) version else old?.installedVersion,
+                ),
+            )
+        }
     }
 
     /** Remembered so the background update check knows what is on the TV. */
@@ -660,6 +743,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 tvInfo = info
                 tvState = TvState.ONLINE
                 rememberInstalledVersion(info)
+                saveTv(tvIp, null, info)
             }
         }
     }
@@ -934,6 +1018,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             identityStore.all().forEach { add(it.second.duid) }
             tvInfo?.duid?.let(::add)
             prefs.getString(PREF_TV_DUID, null)?.let(::add)
+            savedTvs.forEach { tv -> tv.duid?.let(::add); tv.id?.let(::add) }
             prefs.all.filterKeys { it.startsWith("remoteToken:") }.values.forEach { (it as? String)?.let(::add) }
         }.filter { it.isNotBlank() }.distinct()
         val lines = log.takeLast(300).map { BugReport.redact("[${it.level.name.lowercase()}] ${it.text}", secrets) }

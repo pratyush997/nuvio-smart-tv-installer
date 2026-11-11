@@ -48,10 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import tv.nuvio.installer.core.TvBrand
 
 private const val GUIDE_STEPS = 6
-
-private enum class TvBrand { SAMSUNG, LG }
 
 /**
  * First-time setup, one step per screen: which TV, what you need, Developer Mode, restart,
@@ -60,7 +59,7 @@ private enum class TvBrand { SAMSUNG, LG }
  */
 @Composable
 fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> Unit) {
-    var step by rememberSaveable { mutableIntStateOf(0) }
+    var step by rememberSaveable { mutableIntStateOf(vm.guideStartStep) }
     var brand by rememberSaveable { mutableStateOf<TvBrand?>(null) }
     val busy = vm.busy != null
     val connected = vm.tvState == TvState.ONLINE
