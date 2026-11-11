@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import java.time.Instant
 import androidx.compose.runtime.getValue
@@ -78,7 +80,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
@@ -110,23 +114,97 @@ import tv.nuvio.installer.core.LogLevel
 
 // ---------------------------------------------------------------- palette
 
+/** One set of colours. Every text colour reaches 4.5:1 contrast on [background]. */
+@Immutable
+class PaletteColors(
+    val background: Color,
+    val surface: Color,
+    val surfaceHigh: Color,
+    val outline: Color,
+    val text: Color,
+    val muted: Color,
+    val faint: Color,
+    val link: Color,
+    val blue: Color,
+    val accent: Color,
+    val onAccent: Color,
+    val success: Color,
+    val error: Color,
+    val warning: Color,
+)
+
+val DarkColors = PaletteColors(
+    background = Color(0xFF0A0A0F),
+    surface = Color(0xFF14141B),
+    surfaceHigh = Color(0xFF1C1C25),
+    outline = Color(0xFF2A2A35),
+    text = Color(0xFFF4F4F6),
+    muted = Color(0xFF9A9AA8),
+    faint = Color(0xFF8B8B9A),
+    link = Color(0xFF7DD3FC),
+    blue = Color(0xFF3B82F6),
+    accent = Color(0xFF0EA5E9),
+    onAccent = Color(0xFF082F49),
+    success = Color(0xFF34D399),
+    error = Color(0xFFF87171),
+    warning = Color(0xFFFBBF24),
+)
+
+val LightColors = PaletteColors(
+    background = Color(0xFFF6F7F9),
+    surface = Color(0xFFFFFFFF),
+    surfaceHigh = Color(0xFFECEEF2),
+    outline = Color(0xFFD5D8E0),
+    text = Color(0xFF111318),
+    muted = Color(0xFF4B5060),
+    faint = Color(0xFF6B7080),
+    link = Color(0xFF0369A1),
+    blue = Color(0xFF2563EB),
+    accent = Color(0xFF0369A1),
+    onAccent = Color(0xFFFFFFFF),
+    success = Color(0xFF047857),
+    error = Color(0xFFB91C1C),
+    warning = Color(0xFFB45309),
+)
+
+/** Auto follows the phone's dark/light setting; Light and Dark override it. */
+enum class ThemeMode(val label: String) { AUTO("Auto"), LIGHT("Light"), DARK("Dark") }
+
+/**
+ * The app's colours. [MainActivity] sets [systemDark] on start (Android restarts the activity
+ * when the phone's setting changes) and [mode] from the saved choice; the header button changes [mode].
+ */
 object Palette {
-    val Background = Color(0xFF0A0A0F)
-    val Surface = Color(0xFF14141B)
-    val SurfaceHigh = Color(0xFF1C1C25)
-    val Outline = Color(0xFF2A2A35)
-    val Text = Color(0xFFF4F4F6)
-    val Muted = Color(0xFF9A9AA8)
-    val Faint = Color(0xFF5C5C6A)
+    var systemDark by mutableStateOf(true)
+    var mode by mutableStateOf(ThemeMode.AUTO)
+
+    val isDark: Boolean
+        get() = when (mode) {
+            ThemeMode.AUTO -> systemDark
+            ThemeMode.LIGHT -> false
+            ThemeMode.DARK -> true
+        }
+
+    private val colors get() = if (isDark) DarkColors else LightColors
+
+    val Background get() = colors.background
+    val Surface get() = colors.surface
+    val SurfaceHigh get() = colors.surfaceHigh
+    val Outline get() = colors.outline
+    val Text get() = colors.text
+    val Muted get() = colors.muted
+    val Faint get() = colors.faint
     /** Text buttons and links. */
-    val Link = Color(0xFF7DD3FC)
-    val Blue = Color(0xFF3B82F6)
+    val Link get() = colors.link
+    val Blue get() = colors.blue
     /** Progress, focus and selection. */
-    val Accent = Color(0xFF0EA5E9)
-    val Success = Color(0xFF34D399)
-    val Error = Color(0xFFF87171)
-    val Warning = Color(0xFFFBBF24)
-    /** Same colours as the app icon. */
+    val Accent get() = colors.accent
+    /** Text and icons on [Accent]. */
+    val OnAccent get() = colors.onAccent
+    val Success get() = colors.success
+    val Error get() = colors.error
+    val Warning get() = colors.warning
+    /** Same colours as the app icon; white text on it reads in both modes. */
     val BrandGradient = Brush.horizontalGradient(listOf(Color(0xFF1D4ED8), Color(0xFF0E7490)))
 }
 
@@ -206,7 +284,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Header(onGuide = vm::openGuide, onAbout = { aboutOpen = true })
+                Header(onTheme = vm::nextThemeMode, onGuide = vm::openGuide, onAbout = { aboutOpen = true })
                 vm.appUpdate?.let { update -> AppUpdateBanner(update, onDismiss = vm::dismissAppUpdate) }
                 if (installing) ProgressCard(vm)
                 vm.outcome?.let { outcome ->
@@ -284,28 +362,28 @@ private fun BottomBar(vm: InstallerViewModel) {
 }
 
 @Composable
-private fun Header(onGuide: () -> Unit, onAbout: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(36.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("TV Installer", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                Text("for Nuvio", color = Palette.Muted, fontSize = 12.sp)
-            }
-            HeaderAction(Icons.Filled.List, "Guide", onGuide)
-            HeaderAction(Icons.Filled.Info, "About", onAbout)
+private fun Header(onTheme: () -> Unit, onGuide: () -> Unit, onAbout: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(painterResource(R.drawable.app_logo), contentDescription = null, modifier = Modifier.size(36.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("TV Installer", color = Palette.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("for Nuvio", color = Palette.Muted, fontSize = 12.sp)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("for Samsung TV", Palette.Muted)
-            Chip("LG TV · coming soon", Palette.Faint)
+        val themeIcon = when (Palette.mode) {
+            ThemeMode.AUTO -> R.drawable.ic_theme_auto
+            ThemeMode.LIGHT -> R.drawable.ic_theme_light
+            ThemeMode.DARK -> R.drawable.ic_theme_dark
         }
+        HeaderAction(painterResource(themeIcon), Palette.mode.label, onTheme)
+        HeaderAction(rememberVectorPainter(Icons.Filled.List), "Guide", onGuide)
+        HeaderAction(rememberVectorPainter(Icons.Filled.Info), "About", onAbout)
     }
 }
 
 /** Small icon with a label underneath, for the header. */
 @Composable
-private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun HeaderAction(icon: Painter, label: String, onClick: () -> Unit) {
     Column(
         Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
