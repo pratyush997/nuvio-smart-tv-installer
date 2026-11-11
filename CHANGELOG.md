@@ -18,6 +18,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **What's new**: the TV card shows the release notes of the Nuvio version you picked (first points, with **Show all** and a link to GitHub). The "new version" notification lists the first changes too.
 - **Beta versions** (in the version menu, off by default): offers Nuvio pre-releases and treats the newest one as the latest, for the version picker, update notifications and automatic updates. With it off, pre-releases are no longer listed.
 - **Type on TV** (TV card): type into the TV's on-screen keyboard from the phone, for searching in Nuvio or filling in sign-in fields. The first time, the TV asks whether to allow TV Installer; choose Allow. This uses the TV's remote control connection, so it works without Developer Mode.
+- **Report a problem** (About popup, and on every error): shows a report with the app version, phone, TV and the recent activity log, with TV IDs, tokens and e-mail addresses removed. Check it, then open it as a filled-in GitHub issue or copy it.
 
 ## [1.3.1] - 2026-11-10
 
