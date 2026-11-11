@@ -229,12 +229,29 @@ class TizenInstaller(
         return true
     }
 
+    /**
+     * Creates the certificate for [duid]. With a saved author that is still good, only a new
+     * distributor certificate is requested, listing this TV and the other TVs of that author
+     * (see [SharedProfile]); the author stays the same. Otherwise a new profile is created.
+     */
     private fun createIdentity(duid: String): SigningIdentity {
         events.info("No certificate for this TV yet.")
-        val identity = session.withAccess(events, signIn = ::signIn) { access -> certificates.createIdentity(access, duid, events) }
-        identities.save(identity)
+        val saved = identities.all().map { it.second }
+        val plan = SharedProfile.plan(saved, duid)
+        val base = plan.base
+        val identity = session.withAccess(events, signIn = ::signIn) { access ->
+            if (base != null) certificates.createDistributor(access, plan.duids, base, events)
+            else certificates.createIdentity(access, duid, events)
+        }
+        if (base == null) {
+            identities.save(identity)
+        } else {
+            val toSave = SharedProfile.identitiesToSave(identity, duid, plan.duids) { tv -> identities.candidatesFor(tv).firstOrNull() }
+            toSave.forEach(identities::save)
+            if (toSave.size > 1) events.info("The certificate now covers ${toSave.size} TVs; their saved files were updated.")
+        }
         events.success("Samsung certificate created and saved for this TV. Back it up from the menu so future updates keep working.")
-        return identity
+        return identities.candidatesFor(duid).firstOrNull { it.fingerprint == identity.fingerprint } ?: identity
     }
 
     private fun signIn(): SamsungAccess {
