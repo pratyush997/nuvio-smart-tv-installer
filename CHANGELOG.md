@@ -21,6 +21,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **Type on TV** (TV card): type into the TV's on-screen keyboard from the phone, for searching in Nuvio or filling in sign-in fields. The first time, the TV asks whether to allow TV Installer; choose Allow. This uses the TV's remote control connection, so it works without Developer Mode.
 - **Report a problem** (About popup, and on every error): shows a report with the app version, phone, TV and the recent activity log, with TV IDs, tokens and e-mail addresses removed. Check it, then open it as a filled-in GitHub issue or copy it.
 - **One certificate for all your TVs**, as Tizen Studio and Apps2Samsung do it: when you add a TV, the app keeps your existing author key and asks Samsung for one distributor certificate that lists all your TVs (up to 10). Nuvio on your other TVs keeps updating, because the author never changes. A new author is only made when there is none yet or it expires within 30 days.
+- **Several TVs**: the app keeps a list of your TVs. Each TV is a row at the top of the TV card, with its brand (Samsung or LG) and Nuvio version; tap a row to switch. Tap **+** next to "Your TVs" to set up the next one (the guide opens at the Developer Mode step). Each TV keeps its own address and Nuvio version. Automatic updates and "new version" notifications now cover every TV, one notification per TV; tapping it updates that TV. The bin icon on a row takes that TV off the list after you confirm (its certificate stays on the phone).
 
 ## [1.3.1] - 2026-11-10
 

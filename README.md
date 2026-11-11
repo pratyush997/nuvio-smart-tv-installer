@@ -49,6 +49,10 @@ When a new Nuvio version is out, the app sends a notification. Tap it and the TV
 
 Updates do not need the Samsung sign-in again.
 
+### More than one TV
+
+Tap **Add another TV** on the main screen and follow the guide for the new TV. Every TV uses this phone's IP as Host PC IP. Each TV gets its own certificate; a second TV set up while the Samsung sign-in is still saved (the certificate card shows how long) needs no new sign-in. Switch between TVs at the top of the TV card. Update notifications come one per TV.
+
 When a new version of this app is out, it shows a banner and sends a notification. Tap **Download**, then open the downloaded file to update. Your TV setup and certificate are kept.
 
 ## Your signing certificate

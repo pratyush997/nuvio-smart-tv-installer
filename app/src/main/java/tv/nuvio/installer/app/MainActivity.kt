@@ -95,8 +95,9 @@ class MainActivity : ComponentActivity() {
     /** Tapping the "new version" notification starts the update straight away. */
     private fun handleUpdateIntent(intent: Intent?) {
         if (intent?.action != UpdateCheck.ACTION_UPDATE) return
-        UpdateCheck.dismiss(this)
-        viewModel.updateNow()
+        val tvKey = intent.getStringExtra(UpdateCheck.EXTRA_TV_KEY)
+        UpdateCheck.dismiss(this, tvKey)
+        viewModel.updateNow(tvKey)
     }
 
     private fun openBrowser(url: String) {
