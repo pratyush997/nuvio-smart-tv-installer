@@ -276,6 +276,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** Set by the activity: opens the Samsung login page. */
     var loginOpener: ((String) -> Unit)? = null
 
+    /** When the saved Samsung sign-in expires; null when none is saved. Declared before init, which sets it. */
+    var signInExpiresAt by mutableStateOf<Instant?>(null)
+        private set
+
     init {
         refreshIdentities()
         showGuide = !prefs.getBoolean("setupDone", false)
@@ -476,10 +480,6 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     fun reopenLogin() {
         loginOpener?.invoke(SamsungLoginServer.AUTH_URL)
     }
-
-    /** When the Samsung sign-in kept in memory expires; null when none is kept. */
-    var signInExpiresAt by mutableStateOf<Instant?>(null)
-        private set
 
     /** Re-reads [signInExpiresAt]; also clears it once the hour is over. */
     fun refreshSignIn() {
