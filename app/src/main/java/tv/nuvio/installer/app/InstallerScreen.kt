@@ -95,6 +95,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import tv.nuvio.installer.core.TizenStudioCertificate
+import tv.nuvio.installer.core.NoteLine
+import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.ReleaseNotes
 import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.CheckState
 import tv.nuvio.installer.core.ExpiryState
@@ -456,6 +459,7 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             }
             VersionTile(vm, Modifier.weight(1f), enabled = !busy, onPickFile = onPickFile)
         }
+        (vm.source as? PackageSource.FromRelease)?.release?.let { ReleaseNotesView(it) }
 
         val installed = vm.tvState == TvState.ONLINE && vm.installedVersion != null
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -699,6 +703,40 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
             }
             HorizontalDivider()
             DropdownMenuItem(text = { Text("Choose a .wgt file…") }, onClick = { open = false; onPickFile() })
+        }
+    }
+}
+
+/** "What's new" for the chosen Nuvio version: the first points, expandable to all. */
+@Composable
+private fun ReleaseNotesView(release: Release) {
+    val lines = remember(release.id) { ReleaseNotes.parse(release.body) }
+    if (lines.isEmpty()) return
+    var expanded by remember(release.id) { mutableStateOf(false) }
+    val uri = LocalUriHandler.current
+    val shown = if (expanded) lines else lines.take(4)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.SurfaceHigh).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("What's new in ${release.tag_name}", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        for (line in shown) {
+            when (line.kind) {
+                NoteLine.Kind.HEADING -> Text(line.text, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
+                NoteLine.Kind.BULLET -> Row {
+                    Text("•", color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.width(14.dp))
+                    Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+                NoteLine.Kind.TEXT -> Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+        Row {
+            if (lines.size > shown.size || expanded) {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all", color = Palette.Link) }
+            }
+            if (release.html_url.isNotBlank()) {
+                TextButton(onClick = { uri.openUri(release.html_url) }) { Text("Open on GitHub", color = Palette.Link) }
+            }
         }
     }
 }

@@ -28,6 +28,7 @@ import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.InstallerEvents
 import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.ReleaseNotes
 import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.ExpiryState
@@ -128,7 +129,7 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
 
     private fun notifyOnce(prefs: android.content.SharedPreferences, installed: String, release: Release, note: String?) {
         if (prefs.getString(PREF_NOTIFIED_TAG, null) == release.tag_name) return
-        if (UpdateCheck.notify(applicationContext, installed, release.tag_name, note)) {
+        if (UpdateCheck.notify(applicationContext, installed, release.tag_name, note, ReleaseNotes.summary(release.body))) {
             prefs.edit().putString(PREF_NOTIFIED_TAG, release.tag_name).apply()
         }
     }
@@ -229,7 +230,7 @@ object UpdateCheck {
     }
 
     /** Returns false when notifications are not allowed, so the check tries again later. */
-    fun notify(context: Context, installed: String, latest: String, note: String? = null): Boolean {
+    fun notify(context: Context, installed: String, latest: String, note: String? = null, whatsNew: String = ""): Boolean {
         if (!canNotify(context)) return false
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
@@ -242,7 +243,11 @@ object UpdateCheck {
             .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle("Nuvio $latest is out")
             .setContentText("Your TV has $installed. Tap to update it.")
-            .apply { if (note != null) setStyle(Notification.BigTextStyle().bigText("Your TV has $installed. Tap to update it.\n$note")) }
+            .setStyle(
+                Notification.BigTextStyle().bigText(
+                    listOfNotNull("Your TV has $installed. Tap to update it.", note, whatsNew.ifBlank { null }).joinToString("\n")
+                )
+            )
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
