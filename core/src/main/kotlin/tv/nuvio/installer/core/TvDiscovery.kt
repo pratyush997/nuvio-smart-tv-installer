@@ -14,6 +14,9 @@ data class FoundTv(val ip: String, val status: SamsungTvStatus) {
         status.developerMode == true && phoneIp != null && status.developerIp == phoneIp
 }
 
+/** The TV the user last connected to, as remembered between app starts. */
+data class RememberedTv(val id: String?, val name: String, val model: String)
+
 /** Finds Samsung TVs on the phone's network by asking every address for the TV info page. */
 object TvDiscovery {
     /** Connect timeout per address. Local devices answer in a few milliseconds; absent ones never do. */
@@ -33,6 +36,19 @@ object TvDiscovery {
         val size = 1 shl (32 - bits)
         // Skip the network address (first) and the broadcast address (last).
         return (1 until size - 1).map { network + it }.filter { it != phone }.map(TvNetwork::toText)
+    }
+
+    /**
+     * The [remembered] TV among [found], so a TV that got a new IP from the router is found again.
+     * Matches by id; for TVs that report no id, by name and model, and only when exactly one matches.
+     */
+    fun findRemembered(remembered: RememberedTv, found: List<FoundTv>): FoundTv? {
+        val id = remembered.id?.takeIf { it.isNotBlank() }
+        if (id != null) found.firstOrNull { it.status.id == id }?.let { return it }
+        if (remembered.name.isBlank()) return null
+        return found.filter { tv ->
+            (id == null || tv.status.id == null) && tv.status.name == remembered.name && tv.status.model == remembered.model
+        }.singleOrNull()
     }
 
     /**

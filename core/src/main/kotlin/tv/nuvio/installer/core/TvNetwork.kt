@@ -14,9 +14,16 @@ import java.net.SocketTimeoutException
 
 /**
  * What a Samsung TV says about itself on its info port (8001). Fields the TV did not report are
- * null; [name] is empty when the TV answered but the answer could not be read.
+ * null; [name] is empty when the TV answered but the answer could not be read. [id] identifies the
+ * TV across IP changes (its `uuid:` id, or its Wi-Fi MAC on TVs that report no id).
  */
-data class SamsungTvStatus(val name: String, val model: String, val developerMode: Boolean?, val developerIp: String?)
+data class SamsungTvStatus(
+    val name: String,
+    val model: String,
+    val developerMode: Boolean?,
+    val developerIp: String?,
+    val id: String? = null,
+)
 
 enum class CheckState { OK, FAIL, UNKNOWN }
 
@@ -110,7 +117,8 @@ object TvNetwork {
             else -> null
         }
         val developerIp = text("developerIP").takeIf { isValidIpv4(it) && it != "0.0.0.0" }
-        return SamsungTvStatus(text("name").ifEmpty { "Samsung TV" }, text("modelName"), mode, developerIp)
+        val id = listOf(text("id"), text("duid"), text("wifiMac")).firstOrNull { it.isNotEmpty() }
+        return SamsungTvStatus(text("name").ifEmpty { "Samsung TV" }, text("modelName"), mode, developerIp, id)
     }
 
     /**
