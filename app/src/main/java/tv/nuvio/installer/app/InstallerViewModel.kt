@@ -474,7 +474,23 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         loginOpener?.invoke(SamsungLoginServer.AUTH_URL)
     }
 
+    /** When the Samsung sign-in kept in memory expires; null when none is kept. */
+    var signInExpiresAt by mutableStateOf<Instant?>(null)
+        private set
+
+    /** Re-reads [signInExpiresAt]; also clears it once the hour is over. */
+    fun refreshSignIn() {
+        signInExpiresAt = samsungSession.expiresAt()
+    }
+
+    /** Drops the kept Samsung sign-in: the next new certificate asks for a sign-in again. */
+    fun forgetSignIn() {
+        samsungSession.forget()
+        refreshSignIn()
+    }
+
     private fun refreshIdentities() {
+        refreshSignIn()
         val all = identityStore.all().filter { it.second.isUsable }
         identityCount = all.size
         val duid = tvInfo?.duid

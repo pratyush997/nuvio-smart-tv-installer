@@ -31,6 +31,19 @@ class SamsungSessionTest {
     }
 
     @Test
+    fun reportsWhenTheSignInExpires() {
+        assertNull(session.expiresAt())
+        val start = now
+        session.remember(access("a"))
+        assertEquals(start.plus(Duration.ofHours(1)), session.expiresAt())
+        now = now.plus(Duration.ofHours(1))
+        assertNull(session.expiresAt())
+        session.remember(access("b"))
+        session.forget()
+        assertNull(session.expiresAt())
+    }
+
+    @Test
     fun secondTvReusesTheSignIn() {
         var signIns = 0
         val used = ArrayList<String>()
