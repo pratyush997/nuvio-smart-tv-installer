@@ -10,6 +10,8 @@
 
 An Android app that installs and updates [Nuvio TV](https://github.com/NuvioMedia/NuvioTVSmart) on a Samsung Tizen TV straight from your phone. No PC, no Tizen Studio.
 
+It can also install **Nuvio Legacy**, an unofficial native rewrite by a community developer ([iqui27/nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy)) that tends to run smoother on older TVs. Nuvio TV is the official app and the one we recommend. The two install side by side.
+
 It does the same job as the Samsung part of the desktop [Nuvio TV Installer](https://github.com/NuvioMedia/NuvioTVSmart-Installer), on Android.
 
 **LG TVs:** not supported yet. Coming soon.
@@ -46,13 +48,19 @@ The app walks you through this in its built-in setup guide. The steps are:
 
 ## Updating
 
-When a new Nuvio version is out, the app sends a notification. Tap it and the TV is updated. You can also open the app and tap **Update**.
+When a new Nuvio TV version is out, the app sends a notification. Tap it and the TV is updated. You can also open the app and tap **Update Nuvio TV**. Updates do not need the Samsung sign-in again.
 
-Updates do not need the Samsung sign-in again.
+- **Update Nuvio automatically** (off by default): the app installs new versions by itself when the TV is on and on the same Wi-Fi. You get a notification after each update.
+- **What's new** on the app's card shows the release notes for the version you picked.
+- **Beta versions** are listed in the version menu, marked "beta". A TV on a full release only gets full releases. Install a beta, and that TV gets newer betas until you install a full release again.
+
+Nuvio Legacy updates itself on the TV, so the app shows it as "Installed" without a version and doesn't send update notifications for it.
 
 ### More than one TV
 
-Tap **+** on the TV card and follow the guide for the new TV. Every TV uses this phone's IP as Host PC IP. Each TV gets its own certificate; a second TV set up while the Samsung sign-in is still saved (the certificate card shows how long) needs no new sign-in. Switch between TVs with **Switch** on the TV card. Update notifications come one per TV.
+Tap **+** on the TV card and follow the guide for the new TV. Every TV uses this phone's IP as Host PC IP. Switch between TVs with **Switch**. Update notifications come one per TV.
+
+All your TVs share one certificate (up to 10 TVs), so Nuvio keeps updating on the TVs you already have. While your Samsung sign-in is saved (the certificate card shows when it expires), adding a TV needs no new sign-in.
 
 When a new version of this app is out, it shows a banner and sends a notification. Tap **Download**, then open the downloaded file to update. Your TV setup and certificate are kept.
 
@@ -65,6 +73,15 @@ Samsung TVs only accept an update signed with the same certificate as the first 
 - Keep that file. If you lose the certificate, you must uninstall Nuvio from the TV before you can install it again.
 - Already installed Nuvio with the desktop installer? Import its certificate file (`samsung-tv-certificate-….json`) with **Import** in the app.
 - The backup contains private keys. Do not share it. To protect it, tap **Add password** under **Certificate & backup**: backups are then encrypted and saved as `nuvio-tizen-certificates.nuviobackup`. If you forget the password, the backup cannot be opened.
+- The certificate card shows how long the certificate is valid. From 30 days before it expires, the app warns you.
+- Prefer not to sign in on the phone? Create a certificate in Tizen Studio's Certificate Manager, tap **Import** and select both `author.p12` and `distributor.p12`.
+- While a Samsung sign-in is saved, the card shows "Samsung sign-in saved · expires in …". Tap **Forget** to delete it right away.
+
+## More in the app
+
+- **Type on TV**: type into the TV's on-screen keyboard from your phone, for searching in Nuvio or filling in sign-ins. This works without Developer Mode. The first time, choose **Allow** on the TV.
+- **Report a problem** (About, and on every error): makes a bug report with TV IDs, tokens and e-mail addresses removed. Check it, then open it as a GitHub issue or copy it.
+- **Light mode**: follows the phone. The button next to **Guide** switches between Auto, Light and Dark.
 
 ## Troubleshooting
 
@@ -82,19 +99,21 @@ Every install or update runs these checks first, one by one, and stops at the fi
 
 The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host PC IP you typed. Reserving a fixed IP for your phone in the router settings avoids this; the app suggests it, with a link to the router's page, when it sees the phone's IP change.
 
-**Activity** at the bottom of the app shows every command and the TV's replies. Copy it into a bug report.
+The app remembers your TV. When the router gives the TV a new IP, the app finds the TV again and switches to the new address by itself.
+
+**Activity** at the bottom of the app shows every command and the TV's replies. To report a bug, tap **Report a problem**: it includes the recent activity.
 
 ## Privacy
 
-- The Samsung sign-in happens on Samsung's website in your browser. The app receives an access token from it, uses it to request the certificate for your TV from Samsung, and does not store your password.
+- The Samsung sign-in happens on Samsung's website in your browser. The app never sees your password. It keeps the sign-in until Samsung says it expires, encrypted with a key from the Android Keystore and never included in Android backups. **Forget** deletes it.
 - Certificates stay on your phone (and in the backup file you control).
-- The app talks to: your TV, GitHub (to list and download Nuvio releases), and Samsung (sign-in and certificates). There is no analytics or tracking.
+- The app talks to: your TV, GitHub (to list and download Nuvio TV and Nuvio Legacy releases, and to check for updates to this app), and Samsung (sign-in and certificates). There is no analytics or tracking.
 
 ## How it works
 
-1. Downloads the Nuvio `.wgt` from GitHub releases and verifies its SHA-256.
+1. Downloads the Nuvio TV `.wgt` (or the Nuvio Legacy `.tpk` for your TV's Tizen version) from GitHub releases and checks its SHA-256 against the one GitHub lists.
 2. Connects to the TV over SDB (port 26101), reads the TV's DUID, Tizen version and installed apps.
-3. Creates a Samsung author and distributor certificate for that DUID (first install only).
+3. Creates a Samsung author certificate, plus a distributor certificate that lists all your TVs (first install, or when you add a TV).
 4. Signs the package (Tizen XML-DSig), uploads it and runs the TV's installer.
 5. Reads the installed app list back to confirm the version.
 
