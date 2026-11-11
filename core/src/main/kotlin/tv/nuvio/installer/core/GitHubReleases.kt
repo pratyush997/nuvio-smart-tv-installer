@@ -25,6 +25,8 @@ data class Release(
     val prerelease: Boolean = false,
     val published_at: String? = null,
     val html_url: String = "",
+    /** The release notes, in Markdown. */
+    val body: String? = null,
     val assets: List<ReleaseAsset> = emptyList(),
 ) {
     val wgtAsset: ReleaseAsset? get() = assets.firstOrNull { it.name.endsWith(".wgt", ignoreCase = true) }

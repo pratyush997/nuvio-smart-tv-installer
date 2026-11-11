@@ -95,6 +95,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import tv.nuvio.installer.core.TizenStudioCertificate
+import tv.nuvio.installer.core.NoteLine
+import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.ReleaseNotes
 import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.CheckState
 import tv.nuvio.installer.core.ExpiryState
@@ -456,12 +459,30 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             }
             VersionTile(vm, Modifier.weight(1f), enabled = !busy, onPickFile = onPickFile)
         }
+        (vm.source as? PackageSource.FromRelease)?.release?.let { ReleaseNotesView(it) }
 
         val installed = vm.tvState == TvState.ONLINE && vm.installedVersion != null
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Open on TV", Icons.Filled.PlayArrow, enabled = !busy && installed, onClick = vm::launchOnTv, modifier = Modifier.weight(1f))
             SoftButton("Uninstall", Icons.Filled.Delete, enabled = !busy && installed, onClick = vm::uninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
         }
+        if (vm.installedVersion != null) AutoUpdateRow(vm)
+    }
+}
+
+@Composable
+private fun AutoUpdateRow(vm: InstallerViewModel) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Update Nuvio automatically", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(
+                if (vm.autoUpdate) "New versions are installed on the TV when the TV is on and the phone is on the same Wi-Fi. You get a notification after each update."
+                else "Off: you get a notification when a new version is out, and tap it to update.",
+                color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        androidx.compose.material3.Switch(checked = vm.autoUpdate, onCheckedChange = vm::updateAutoUpdate)
     }
 }
 
@@ -671,9 +692,10 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
             }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            vm.releases.forEachIndexed { index, release ->
+            val latest = vm.latestRelease
+            vm.releases.forEach { release ->
                 DropdownMenuItem(
-                    text = { Text("Nuvio ${release.label}" + if (index == 0) "  (latest)" else "") },
+                    text = { Text("Nuvio ${release.label}" + if (release == latest) "  (latest)" else "") },
                     onClick = { vm.source = PackageSource.FromRelease(release); open = false },
                 )
             }
@@ -681,7 +703,54 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                 DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(); open = false })
             }
             HorizontalDivider()
+            DropdownMenuItem(
+                text = {
+                    Column {
+                        Text("Beta versions")
+                        Text(
+                            if (vm.betaChannel) "On: pre-releases are offered and installed" else "Off: only full releases",
+                            color = Palette.Muted, fontSize = 12.sp,
+                        )
+                    }
+                },
+                trailingIcon = { androidx.compose.material3.Switch(checked = vm.betaChannel, onCheckedChange = null) },
+                onClick = { vm.updateBetaChannel(!vm.betaChannel) },
+            )
             DropdownMenuItem(text = { Text("Choose a .wgt file…") }, onClick = { open = false; onPickFile() })
+        }
+    }
+}
+
+/** "What's new" for the chosen Nuvio version: the first points, expandable to all. */
+@Composable
+private fun ReleaseNotesView(release: Release) {
+    val lines = remember(release.id) { ReleaseNotes.parse(release.body) }
+    if (lines.isEmpty()) return
+    var expanded by remember(release.id) { mutableStateOf(false) }
+    val uri = LocalUriHandler.current
+    val shown = if (expanded) lines else lines.take(4)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.SurfaceHigh).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("What's new in ${release.tag_name}", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        for (line in shown) {
+            when (line.kind) {
+                NoteLine.Kind.HEADING -> Text(line.text, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
+                NoteLine.Kind.BULLET -> Row {
+                    Text("•", color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.width(14.dp))
+                    Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+                NoteLine.Kind.TEXT -> Text(line.text, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        }
+        Row {
+            if (lines.size > shown.size || expanded) {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all", color = Palette.Link) }
+            }
+            if (release.html_url.isNotBlank()) {
+                TextButton(onClick = { uri.openUri(release.html_url) }) { Text("Open on GitHub", color = Palette.Link) }
+            }
         }
     }
 }
