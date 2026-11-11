@@ -85,6 +85,7 @@ const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 const val PREF_AUTO_UPDATE = "autoUpdate"
 const val PREF_BETA_CHANNEL = "betaChannel"
+const val PREF_THEME_MODE = "themeMode"
 const val PREF_TV_DUID = "tvDuid"
 private const val PREF_BACKUP_PASSWORD = "backupPassword"
 
@@ -320,6 +321,13 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         if (busy != null) return
         updateTvIp(tv.ip)
         checkTv()
+    }
+
+    /** Header button: Auto, then Light, then Dark, then Auto again. Saved for the next start. */
+    fun nextThemeMode() {
+        val next = ThemeMode.entries[(Palette.mode.ordinal + 1) % ThemeMode.entries.size]
+        Palette.mode = next
+        prefs.edit().putString(PREF_THEME_MODE, next.name).apply()
     }
 
     /** Never throws: an offline phone just shows "couldn't check" in About. */

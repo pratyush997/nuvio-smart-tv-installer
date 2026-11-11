@@ -7,6 +7,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -20,8 +22,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.toArgb
 
 class MainActivity : ComponentActivity() {
@@ -32,16 +37,41 @@ class MainActivity : ComponentActivity() {
         viewModel.loginOpener = { url -> openBrowser(url) }
         UpdateCheck.schedule(applicationContext)
         if (savedInstanceState == null) handleUpdateIntent(intent)
+        // Android restarts the activity when the phone switches dark/light, so reading it here is enough.
+        Palette.systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        Palette.mode = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(PREF_THEME_MODE, null)
+            ?.let { saved -> ThemeMode.entries.firstOrNull { it.name == saved } } ?: ThemeMode.AUTO
         setContent {
+            val dark = Palette.isDark
+            SideEffect {
+                val background = Palette.Background.toArgb()
+                window.setBackgroundDrawable(ColorDrawable(background))
+                // Ignored from Android 15 (the app draws behind the bars there); needed before it.
+                @Suppress("DEPRECATION")
+                run {
+                    window.statusBarColor = background
+                    window.navigationBarColor = background
+                }
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
+            val scheme = if (dark) darkColorScheme() else lightColorScheme()
             MaterialTheme(
-                colorScheme = darkColorScheme(
+                colorScheme = scheme.copy(
                     primary = Palette.Accent,
-                    onPrimary = androidx.compose.ui.graphics.Color.White,
+                    onPrimary = Palette.OnAccent,
                     background = Palette.Background,
+                    onBackground = Palette.Text,
                     surface = Palette.SurfaceHigh,
                     surfaceContainer = Palette.SurfaceHigh,
+                    surfaceContainerHigh = Palette.SurfaceHigh,
                     onSurface = Palette.Text,
+                    onSurfaceVariant = Palette.Muted,
+                    outline = Palette.Outline,
                     outlineVariant = Palette.Outline,
+                    error = Palette.Error,
                 )
             ) {
                 Box(Modifier.fillMaxSize().background(Palette.Background).safeDrawingPadding()) {

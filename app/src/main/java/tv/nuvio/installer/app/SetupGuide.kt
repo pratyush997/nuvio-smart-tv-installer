@@ -167,7 +167,7 @@ private fun BrandOption(name: String, detail: String, selected: Boolean, availab
                 .background(if (selected) Palette.Accent else Palette.SurfaceHigh),
             contentAlignment = Alignment.Center,
         ) {
-            if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.Background, modifier = Modifier.size(18.dp))
+            if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Palette.OnAccent, modifier = Modifier.size(18.dp))
         }
     }
 }
