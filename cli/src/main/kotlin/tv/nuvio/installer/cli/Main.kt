@@ -45,6 +45,10 @@ fun main(args: Array<String>) {
             "releases" -> tv.nuvio.installer.core.GitHubReleases().recent().forEach { println("${it.label} -> ${it.wgtAsset?.name} ${it.wgtAsset?.digest}") }
             "validate" -> println(tv.nuvio.installer.core.WgtPackage.validate(File(args[1]), events))
             "launch" -> installer.launch(args[1])
+            "type" -> tv.nuvio.installer.core.SamsungRemote.connect(args[1], token = args.getOrNull(3)).use { remote ->
+                remote.sendText(args[2])
+                println("Sent. Token for next time: ${remote.token}")
+            }
             "uninstall" -> installer.uninstall(args[1])
             "import" -> println("Imported identity for DUID " + IdentityStore(File(data, "identities")).import(File(args[1]).readText()).duid)
             "sign" -> {
@@ -53,7 +57,7 @@ fun main(args: Array<String>) {
                 println("Signed ${args[3]} (author chain valid: ${identity.hasValidAuthorChain()})")
             }
             else -> {
-                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt> | launch <ip> | uninstall <ip> | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
+                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt> | launch <ip> | type <ip> <text> [token] | uninstall <ip> | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
                 exitProcess(2)
             }
         }

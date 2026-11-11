@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
@@ -466,8 +467,43 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             SoftButton("Open on TV", Icons.Filled.PlayArrow, enabled = !busy && installed, onClick = vm::launchOnTv, modifier = Modifier.weight(1f))
             SoftButton("Uninstall", Icons.Filled.Delete, enabled = !busy && installed, onClick = vm::uninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
         }
+        SoftButton(
+            "Type on TV", Icons.Filled.Edit, enabled = vm.tvState == TvState.ONLINE, onClick = vm::openTypeOnTv,
+            modifier = Modifier.fillMaxWidth(), tint = Palette.Link,
+        )
         if (vm.installedVersion != null) AutoUpdateRow(vm)
     }
+    if (vm.typeOnTvOpen) TypeOnTvDialog(vm)
+}
+
+/** Types into the TV's on-screen keyboard from the phone (search, sign-in fields). */
+@Composable
+private fun TypeOnTvDialog(vm: InstallerViewModel) {
+    var text by rememberSaveable { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = vm::closeTypeOnTv,
+        title = { Text("Type on TV") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "On the TV, open a search box or text field so its keyboard shows. Then type here and tap Send.",
+                    fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it }, label = { Text("Text") }, singleLine = true,
+                    enabled = !vm.typeOnTvSending, modifier = Modifier.fillMaxWidth(),
+                )
+                vm.typeOnTvStatus?.let { Text(it, color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp) }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { vm.sendTextToTv(text, enter = false) }, enabled = !vm.typeOnTvSending && text.isNotEmpty()) { Text("Send") }
+                TextButton(onClick = { vm.sendTextToTv(text, enter = true) }, enabled = !vm.typeOnTvSending) { Text("Send + Enter") }
+            }
+        },
+        dismissButton = { TextButton(onClick = vm::closeTypeOnTv) { Text("Close") } },
+    )
 }
 
 @Composable
