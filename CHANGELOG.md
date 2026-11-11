@@ -10,6 +10,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - When the phone's IP no longer matches Host PC IP on the TV, "How to fix it" now also suggests reserving the phone's IP in the router, with a link to the router's page, so it does not happen again.
 - The certificate card shows how long your TV's certificate is valid. From 30 days before it expires, the card and a notification warn you and explain what it means for Nuvio updates.
 - Backups can be protected with a password (certificate card › **Add password**). Protected backups are encrypted (AES-256-GCM) and saved as `nuvio-tizen-certificates.nuviobackup`; importing one asks for the password.
+- Before uploading, the app checks the saved certificate. Expired certificates are skipped. If Nuvio is on the TV and the only certificate for it has expired, the app says so and explains the fix (uninstall, then install again) instead of failing on the TV. If the certificate has never installed Nuvio on this TV, the activity log warns that the TV may refuse the update.
+- When the TV refuses an update because Nuvio was installed with a different certificate, the app now offers **Import certificate** and **Uninstall from TV** instead of a generic error.
 
 ## [1.3.1] - 2026-11-10
 
