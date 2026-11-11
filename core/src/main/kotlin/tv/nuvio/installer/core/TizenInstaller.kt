@@ -133,7 +133,8 @@ class TizenInstaller(
         TvInfo(duid, version, app)
     }
 
-    fun install(ip: String, wgt: File) {
+    /** With [allowSignIn] false, a TV without a saved certificate fails with [SignInNeededException]. */
+    fun install(ip: String, wgt: File, allowSignIn: Boolean = true) {
         events.stage(InstallStage.PACKAGE)
         val metadata = WgtPackage.validate(wgt, events)
         events.info("Package ${metadata.packageId} (${metadata.appId}) version ${metadata.version}.")
@@ -154,7 +155,10 @@ class TizenInstaller(
             val preflight = CertificatePreflight.check(validCandidates(duid), installed)
             preflight.notes.forEach(events::info)
             preflight.blocked?.let { throw it }
-            val candidates = preflight.usable.ifEmpty { listOf(createIdentity(duid)) }
+            val candidates = preflight.usable.ifEmpty {
+                if (!allowSignIn) throw SignInNeededException()
+                listOf(createIdentity(duid))
+            }
             if (preflight.usable.isNotEmpty()) {
                 events.info(if (candidates.size == 1) "Using the saved certificate for this TV." else "Found ${candidates.size} saved certificates for this TV.")
             }

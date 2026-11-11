@@ -35,6 +35,7 @@ import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.CertificateExpiredException
 import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.RememberedTv
 import tv.nuvio.installer.core.SamsungSession
 import tv.nuvio.installer.core.SamsungCertificates
@@ -50,7 +51,6 @@ import tv.nuvio.installer.core.downloadFile
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
-import java.security.MessageDigest
 import java.time.Instant
 
 data class LogLine(val level: LogLevel, val text: String)
@@ -79,6 +79,8 @@ data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: Str
 const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
+const val PREF_AUTO_UPDATE = "autoUpdate"
+const val PREF_TV_DUID = "tvDuid"
 private const val PREF_BACKUP_PASSWORD = "backupPassword"
 
 /** A picked certificate file needs a password; the UI asks for it. */
@@ -107,6 +109,15 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private val certificates = SamsungCertificates(File(application.filesDir, "samsung-ca"))
     /** One Samsung sign-in, kept in memory for an hour, covers certificates for several TVs. */
     private val samsungSession = SamsungSession()
+
+    /** Install new Nuvio versions on the TV from the background check, without asking. */
+    var autoUpdate by mutableStateOf(prefs.getBoolean(PREF_AUTO_UPDATE, false))
+        private set
+
+    fun updateAutoUpdate(on: Boolean) {
+        autoUpdate = on
+        prefs.edit().putBoolean(PREF_AUTO_UPDATE, on).apply()
+    }
 
     var tvIp by mutableStateOf(prefs.getString("tvIp", "").orEmpty())
         private set
@@ -493,7 +504,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** Remembered so the background update check knows what is on the TV. */
     private fun rememberInstalledVersion(info: TvInfo) {
         val version = info.installedApp?.get("app_version")?.takeIf { it.isNotBlank() }
-        prefs.edit().apply { if (version != null) putString(PREF_INSTALLED_VERSION, version) else remove(PREF_INSTALLED_VERSION) }.apply()
+        prefs.edit().apply {
+            if (version != null) putString(PREF_INSTALLED_VERSION, version) else remove(PREF_INSTALLED_VERSION)
+            putString(PREF_TV_DUID, info.duid)
+        }.apply()
     }
 
     private fun run(label: String, block: suspend () -> Outcome) {
@@ -554,9 +568,11 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         val wgt = preparePackage()
         val certificatesBefore = identityStore.all().map { it.first.name }.toSet()
         var backupNote = ""
+        if (!TvAccess.tryAcquire()) throw InstallerException("An automatic Nuvio update is running on the TV right now. Try again in a few minutes.")
         try {
             installer().install(tvIp, wgt)
         } finally {
+            TvAccess.release()
             // A certificate was created for this TV: back it up right away, even if the install failed after that.
             if (identityStore.all().any { it.first.name !in certificatesBefore }) backupNote = autoBackup()
         }
@@ -631,28 +647,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         return when (val selected = source ?: throw InstallerException("Choose a Nuvio version or a .wgt file first.")) {
             is PackageSource.FromRelease -> {
                 val asset = selected.release.wgtAsset ?: throw InstallerException("This release has no Samsung .wgt file.")
-                val target = File(downloads, asset.name)
-                val expected = asset.digest?.removePrefix("sha256:")?.lowercase()
-                if (target.isFile && target.length() == asset.size && (expected == null || sha256(target) == expected)) {
-                    events.log(LogLevel.INFO, "Using downloaded ${asset.name}.")
-                } else {
-                    events.log(LogLevel.INFO, "Downloading ${asset.name}...")
-                    try {
-                        downloadFile(asset.browser_download_url, target, "Downloading", events)
-                    } catch (e: InstallerException) {
-                        if (asset.url.isBlank()) throw e
-                        events.log(LogLevel.INFO, "Main download link failed; trying GitHub's API download route.")
-                        downloadFile(asset.url, target, "Downloading", events, mapOf("Accept" to "application/octet-stream"))
-                    }
-                    if (expected != null) {
-                        if (sha256(target) != expected) {
-                            target.delete()
-                            throw InstallerException("The download is corrupted (checksum mismatch). Try again.")
-                        }
-                        events.log(LogLevel.SUCCESS, "Download verified (sha256).")
-                    }
-                }
-                target
+                ReleasePackage.fetch(asset, downloads, events)
             }
             is PackageSource.FromFile -> {
                 val target = File(downloads, "selected-package.wgt")
@@ -822,19 +817,6 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     fun logText(): String = log.joinToString("\n") { "[${it.level.name.lowercase()}] ${it.text}" }
 
     fun clearLog() = log.clear()
-
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buffer)
-                if (n < 0) break
-                digest.update(buffer, 0, n)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
 
     /** The phone's Wi-Fi (or Ethernet) address, ignoring mobile data and VPNs. */
     private fun phoneNetwork(): PhoneNetwork {

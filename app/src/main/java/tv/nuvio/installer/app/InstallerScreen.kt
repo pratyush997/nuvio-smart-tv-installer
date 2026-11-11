@@ -462,6 +462,23 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             SoftButton("Open on TV", Icons.Filled.PlayArrow, enabled = !busy && installed, onClick = vm::launchOnTv, modifier = Modifier.weight(1f))
             SoftButton("Uninstall", Icons.Filled.Delete, enabled = !busy && installed, onClick = vm::uninstall, modifier = Modifier.weight(1f), tint = Palette.Muted)
         }
+        if (vm.installedVersion != null) AutoUpdateRow(vm)
+    }
+}
+
+@Composable
+private fun AutoUpdateRow(vm: InstallerViewModel) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Update Nuvio automatically", color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(
+                if (vm.autoUpdate) "New versions are installed on the TV when the TV is on and the phone is on the same Wi-Fi. You get a notification after each update."
+                else "Off: you get a notification when a new version is out, and tap it to update.",
+                color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        androidx.compose.material3.Switch(checked = vm.autoUpdate, onCheckedChange = vm::updateAutoUpdate)
     }
 }
 

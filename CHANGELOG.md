@@ -14,6 +14,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - When the TV refuses an update because Nuvio was installed with a different certificate, the app now offers **Import certificate** and **Uninstall from TV** instead of a generic error.
 - **Several TVs, one sign-in**: after you sign in with Samsung, certificates for other TVs created within the next hour use the same sign-in. The sign-in is kept in memory only, never saved to the phone. If Samsung no longer accepts it, the app asks you to sign in again.
 - **Tizen Studio certificates**: if you would rather not sign in with Samsung on the phone, create a Samsung certificate in Tizen Studio's Certificate Manager, then tap **Import** and select both `author.p12` and `distributor.p12`. The app asks for the profile's password and saves the certificate for every TV (DUID) it lists.
+- **Update Nuvio automatically** (TV card, off by default): when a new Nuvio version is out, the twice-daily check installs it on the TV by itself, if the TV is on, the phone is on the same Wi-Fi and the TV's certificate is saved. It never opens the Samsung sign-in. You get a notification after each update; if it cannot update, you get the usual "tap to update" notification with the reason.
 
 ## [1.3.1] - 2026-11-10
 
