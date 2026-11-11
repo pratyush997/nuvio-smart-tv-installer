@@ -27,6 +27,8 @@ import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
+import java.time.Duration
+import java.time.Instant
 import java.util.Base64
 
 /**
@@ -56,6 +58,17 @@ data class SigningIdentity(
     fun author(): KeyAndChain = Pkcs12.read(Base64.getDecoder().decode(authorCert), password)
     fun distributor(): KeyAndChain = Pkcs12.read(Base64.getDecoder().decode(distributorCert), password)
 
+    /**
+     * When this identity stops working: the earliest end date of the certificates Samsung issued
+     * for it (the author and distributor certificates, not the CAs above them). Null when the
+     * bundles cannot be read.
+     */
+    fun expiresAt(): Instant? = runCatching {
+        (author().chain + distributor().chain)
+            .filter { it.basicConstraints == -1 }
+            .minOfOrNull { it.notAfter.toInstant() }
+    }.getOrNull()
+
     /** True when the author bundle's leaf certificate verifies against a CA certificate in the same bundle. */
     fun hasValidAuthorChain(): Boolean = runCatching {
         val certs = author().chain
@@ -68,6 +81,21 @@ data class SigningIdentity(
     }
 
     fun toJson(): String = json.encodeToString(serializer(), this)
+}
+
+enum class ExpiryState { VALID, EXPIRES_SOON, EXPIRED }
+
+object CertificateExpiry {
+    /** Warn this long before the certificate expires. */
+    val WARNING: Duration = Duration.ofDays(30)
+
+    /** [expiresAt] null (unknown) counts as valid: nothing useful to warn about. */
+    fun state(expiresAt: Instant?, now: Instant = Instant.now()): ExpiryState = when {
+        expiresAt == null -> ExpiryState.VALID
+        !now.isBefore(expiresAt) -> ExpiryState.EXPIRED
+        !now.plus(WARNING).isBefore(expiresAt) -> ExpiryState.EXPIRES_SOON
+        else -> ExpiryState.VALID
+    }
 }
 
 /** Stores identities as individual JSON files, mirroring the desktop installer's layout. */

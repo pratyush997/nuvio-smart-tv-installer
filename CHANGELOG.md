@@ -8,6 +8,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **Find my TV**: scans the phone's Wi-Fi for Samsung TVs and lists each one with its name, model and whether it is ready (Developer Mode on, Host PC IP set to this phone). Tap a TV to use it. On first start, a single TV found is selected automatically.
 - The app remembers your TV. When the router gives the TV a new IP, the check finds it again on the network and switches to the new address by itself.
 - When the phone's IP no longer matches Host PC IP on the TV, "How to fix it" now also suggests reserving the phone's IP in the router, with a link to the router's page, so it does not happen again.
+- The certificate card shows how long your TV's certificate is valid. From 30 days before it expires, the card and a notification warn you and explain what it means for Nuvio updates.
 
 ## [1.3.1] - 2026-11-10
 

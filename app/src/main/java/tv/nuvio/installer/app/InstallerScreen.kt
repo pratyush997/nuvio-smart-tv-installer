@@ -94,7 +94,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.CheckState
+import tv.nuvio.installer.core.ExpiryState
 import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
@@ -873,6 +875,7 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             Spacer(Modifier.width(10.dp))
             Text(text, color = Palette.Text, fontSize = 14.sp)
         }
+        CertificateExpiryNote(vm.certExpiresAt, forThisTv = vm.hasIdentityForTv)
         if (vm.hasIdentityForTv) {
             Text(
                 "Installs and updates use this certificate, so no sign-in is needed. Keep the backup: without it, the TV refuses updates.",
@@ -903,6 +906,48 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
         }
     }
 }
+
+/** "Valid until …", or a warning when the certificate expires within 30 days or has expired. */
+@Composable
+private fun CertificateExpiryNote(expiresAt: java.time.Instant?, forThisTv: Boolean) {
+    expiresAt ?: return
+    val date = formatDate(expiresAt)
+    when (CertificateExpiry.state(expiresAt)) {
+        ExpiryState.VALID -> if (forThisTv) Text("Valid until $date", color = Palette.Faint, fontSize = 12.sp)
+        ExpiryState.EXPIRES_SOON -> WarningBox(
+            "Certificate expires on $date",
+            "After that date the TV may refuse Nuvio updates signed with it. Updating then means uninstalling Nuvio from the TV " +
+                "and installing it again, which creates a new certificate. Nuvio's settings on the TV are lost when it is uninstalled.",
+        )
+        ExpiryState.EXPIRED -> WarningBox(
+            "Certificate expired on $date",
+            "The TV refuses Nuvio updates signed with an expired certificate. To update, uninstall Nuvio from the TV, then install it " +
+                "again: a new certificate is created during the install. Nuvio's settings on the TV are lost when it is uninstalled.",
+        )
+    }
+}
+
+@Composable
+internal fun WarningBox(title: String, text: String) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(Palette.Warning.copy(alpha = 0.08f))
+            .border(1.dp, Palette.Warning.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = Palette.Warning, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(title, color = Palette.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(text, color = Palette.Text, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+internal fun formatDate(instant: java.time.Instant): String =
+    java.time.format.DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM)
+        .withZone(java.time.ZoneId.systemDefault()).format(instant)
 
 /** Popup: the app, who made it, its licence and update status, and links to the code and to report a problem. */
 @Composable
