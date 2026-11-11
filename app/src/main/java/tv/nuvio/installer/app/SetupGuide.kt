@@ -241,8 +241,9 @@ private fun PowerCycleStep() {
 private fun TvAddressStep(vm: InstallerViewModel) {
     GuideTitle("Connect to the TV", "The app checks the phone's IP, the TV's IP and Developer Mode for you.")
     Panel {
-        GuideStep(1, "On the TV open Settings › General (or Connection) › Network › Network Status › IP Settings.")
-        GuideStep(2, "Type the IP address shown there:")
+        GuideStep(1, "Tap Find my TV and pick your TV from the list.")
+        TvFinder(vm)
+        GuideStep(2, "Not listed? On the TV open Settings › General (or Connection) › Network › Network Status › IP Settings, and type the IP shown there:")
         TvIpField(vm, enabled = vm.busy == null)
         when (vm.tvState) {
             TvState.CHECKING -> Row(verticalAlignment = Alignment.CenterVertically) {

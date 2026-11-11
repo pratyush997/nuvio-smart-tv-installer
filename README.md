@@ -40,7 +40,7 @@ The app walks you through this in its built-in setup guide. The steps are:
 1. **Pick your TV.** Samsung is supported; LG is coming soon.
 2. **Turn on Developer Mode on the TV.** Open **Apps**, press `1 2 3 4 5` on the remote, switch Developer Mode **On**, and type your phone's IP (the app shows it) as **Host PC IP**.
 3. **Restart the TV at the plug.** Unplug it from power, wait 5 seconds, plug it back in. Turning it off with the remote is not enough.
-4. **Enter the TV's IP in the app.** On the TV: Settings › General (or Connection) › Network › Network Status › IP Settings. The app checks the connection and tells you what to fix if it fails.
+4. **Pick your TV in the app.** Tap **Find my TV** and choose it from the list. Not listed? Type its IP: on the TV, Settings › General (or Connection) › Network › Network Status › IP Settings. The app checks the connection and tells you what to fix if it fails.
 5. **Sign in with Samsung and install.** The app downloads Nuvio, opens the Samsung sign-in once so Samsung can create a certificate for your TV, signs the package and installs it. You can watch each step as it happens.
 
 ## Updating

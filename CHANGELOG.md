@@ -2,6 +2,11 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Find my TV**: scans the phone's Wi-Fi for Samsung TVs and lists each one with its name, model and whether it is ready (Developer Mode on, Host PC IP set to this phone). Tap a TV to use it. On first start, a single TV found is selected automatically.
+
 ## [1.3.1] - 2026-11-10
 
 ### Added

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -94,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import tv.nuvio.installer.core.CheckState
+import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
@@ -391,6 +393,7 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
         SectionTitle("Your TV")
 
         TvIpField(vm, enabled = !busy)
+        TvFinder(vm)
 
         val (dotColor, statusText) = when (vm.tvState) {
             TvState.UNKNOWN -> Palette.Faint to "Not checked yet"
@@ -413,7 +416,7 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
             else vm.tvError?.let { Text(it, color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp) }
             TextButton(onClick = vm::openGuide) { Text("Open the setup guide", color = Palette.Link) }
         } else if (vm.tvIp.isBlank()) {
-            Text("Type the TV's IP address, or open the setup guide.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            Text("Tap Find my TV, or type the TV's IP address.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -470,6 +473,70 @@ internal fun TvIpField(vm: InstallerViewModel, enabled: Boolean) {
         ),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/** "Find my TV": scans the Wi-Fi and lists the Samsung TVs that answered; tapping one uses it. */
+@Composable
+internal fun TvFinder(vm: InstallerViewModel) {
+    val found = vm.foundTvs
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (vm.scanning) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Palette.Muted)
+                Spacer(Modifier.width(10.dp))
+                Text("Looking for TVs on this Wi-Fi…", color = Palette.Muted, fontSize = 13.sp)
+            } else {
+                TextButton(onClick = { vm.scanForTvs() }, enabled = vm.busy == null) {
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (found == null) "Find my TV" else "Search again", color = Palette.Link)
+                }
+            }
+        }
+        if (!vm.scanning && found != null) {
+            when {
+                vm.phoneIp == "unknown" -> Text(
+                    "This phone is not on Wi-Fi. Connect it to the same Wi-Fi as the TV.",
+                    color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                found.isEmpty() -> Text(
+                    "No Samsung TV answered. Check that the TV is on and on the same Wi-Fi (not a guest network), or type its IP.",
+                    color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+                )
+                else -> found.forEach { tv -> FoundTvRow(tv, vm.phoneIp, selected = tv.ip == vm.tvIp, enabled = vm.busy == null) { vm.selectTv(tv) } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FoundTvRow(tv: FoundTv, phoneIp: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val (color, state) = when {
+        tv.isReadyFor(phoneIp) -> Palette.Success to "Ready"
+        tv.status.developerMode == false -> Palette.Warning to "Developer Mode off"
+        tv.status.developerIp != null && tv.status.developerIp != phoneIp -> Palette.Warning to "Host PC IP is ${tv.status.developerIp}"
+        else -> Palette.Faint to "Tap to check"
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(Palette.SurfaceHigh)
+            .border(1.dp, if (selected) Palette.Accent else Palette.SurfaceHigh, RoundedCornerShape(14.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                listOf(tv.status.name, tv.status.model).filter { it.isNotBlank() }.joinToString(" · "),
+                color = Palette.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(tv.ip, color = Palette.Muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        }
+        Spacer(Modifier.width(10.dp))
+        StatusDot(color)
+        Spacer(Modifier.width(6.dp))
+        Text(state, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
 }
 
 /** Phone and TV address checks, one row each, then what to do about the first problem. */

@@ -44,7 +44,9 @@ object TvNetwork {
     fun isValidIpv4(text: String): Boolean =
         ipv4.matchEntire(text.trim())?.groupValues?.drop(1)?.all { it.toInt() <= 255 } == true
 
-    private fun toInt(ip: String): Int = ip.trim().split('.').fold(0) { acc, part -> (acc shl 8) or part.toInt() }
+    internal fun toInt(ip: String): Int = ip.trim().split('.').fold(0) { acc, part -> (acc shl 8) or part.toInt() }
+
+    internal fun toText(ip: Int): String = (3 downTo 0).joinToString(".") { ((ip ushr (it * 8)) and 0xff).toString() }
 
     /** Android emulators (MSI App Player, BlueStacks, Android Studio) sit behind NAT on these addresses. */
     fun isEmulatorAddress(ip: String): Boolean = ip.startsWith("10.0.2.") || ip.startsWith("10.0.3.")
@@ -64,13 +66,14 @@ object TvNetwork {
     /**
      * Asks the TV's info port who it is and how Developer Mode is set. Returns null when nothing
      * answered at [ip]. Uses a plain socket: this is cleartext HTTP on the local network.
+     * [connectTimeoutMs] can be shorter than [timeoutMs] when scanning many addresses.
      */
-    fun fetchStatus(ip: String, timeoutMs: Int = 2500): SamsungTvStatus? = try {
+    fun fetchStatus(ip: String, timeoutMs: Int = 2500, connectTimeoutMs: Int = timeoutMs, port: Int = INFO_PORT): SamsungTvStatus? = try {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(ip.trim(), INFO_PORT), timeoutMs)
+            socket.connect(InetSocketAddress(ip.trim(), port), connectTimeoutMs)
             socket.soTimeout = timeoutMs
             socket.getOutputStream().apply {
-                write("GET /api/v2/ HTTP/1.1\r\nHost: ${ip.trim()}:$INFO_PORT\r\nAccept: application/json\r\nConnection: close\r\n\r\n".toByteArray())
+                write("GET /api/v2/ HTTP/1.1\r\nHost: ${ip.trim()}:$port\r\nAccept: application/json\r\nConnection: close\r\n\r\n".toByteArray())
                 flush()
             }
             val received = ByteArrayOutputStream()
