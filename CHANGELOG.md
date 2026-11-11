@@ -17,6 +17,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **Update Nuvio automatically** (TV card, off by default): when a new Nuvio version is out, the twice-daily check installs it on the TV by itself, if the TV is on, the phone is on the same Wi-Fi and the TV's certificate is saved. It never opens the Samsung sign-in. You get a notification after each update; if it cannot update, you get the usual "tap to update" notification with the reason.
 - **What's new**: the TV card shows the release notes of the Nuvio version you picked (first points, with **Show all** and a link to GitHub). The "new version" notification lists the first changes too.
 - **Beta versions** (in the version menu, off by default): offers Nuvio pre-releases and treats the newest one as the latest, for the version picker, update notifications and automatic updates. With it off, pre-releases are no longer listed.
+- **Type on TV** (TV card): type into the TV's on-screen keyboard from the phone, for searching in Nuvio or filling in sign-in fields. The first time, the TV asks whether to allow TV Installer; choose Allow. This uses the TV's remote control connection, so it works without Developer Mode.
 
 ## [1.3.1] - 2026-11-10
 
