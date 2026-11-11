@@ -1051,8 +1051,8 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
 }
 
 /**
- * Shows that a Samsung sign-in is kept in memory (for certificates for more TVs) and counts down
- * to when it is dropped.
+ * Shows that a Samsung sign-in is saved (for certificates for more TVs) and counts down to when
+ * it is dropped.
  */
 @Composable
 private fun SignInKept(expiresAt: Instant, onForget: () -> Unit, onExpired: () -> Unit) {
@@ -1065,6 +1065,11 @@ private fun SignInKept(expiresAt: Instant, onForget: () -> Unit, onExpired: () -
         onExpired()
     }
     val minutes = ((java.time.Duration.between(now, expiresAt).seconds + 59) / 60).coerceAtLeast(1)
+    val left = when {
+        minutes >= 48 * 60 -> "${minutes / (24 * 60)} days"
+        minutes >= 120 -> "${minutes / 60} h"
+        else -> "$minutes min"
+    }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.SurfaceHigh).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1072,9 +1077,9 @@ private fun SignInKept(expiresAt: Instant, onForget: () -> Unit, onExpired: () -
         Icon(Icons.Filled.Lock, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            Text("Samsung sign-in saved · expires in $minutes min", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text("Samsung sign-in saved · expires in $left", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Text(
-                "Certificates for other TVs need no sign-in until then. Kept in memory only, not saved on the phone.",
+                "Certificates for other TVs need no sign-in until then, even after closing the app. Saved encrypted on this phone only.",
                 color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp,
             )
         }
