@@ -13,14 +13,13 @@ class AutoUpdateTest {
     private fun release(tag: String, assets: List<ReleaseAsset> = listOf(wgt)) = Release(1, tag, assets = assets)
 
     private fun plan(
-        installed: String? = "1.2.0",
         latest: Release? = release("v1.3.0"),
         enabled: Boolean = true,
         tvIp: String = "192.168.1.9",
         onWifi: Boolean = true,
         hasCertificate: Boolean = true,
         attempts: Int = 0,
-    ) = AutoUpdate.plan(installed, latest, enabled, tvIp, onWifi, hasCertificate, attempts)
+    ) = AutoUpdate.plan(latest, enabled, tvIp, onWifi, hasCertificate, attempts)
 
     @Test
     fun installsANewerVersionWhenEverythingIsReady() {
@@ -28,10 +27,8 @@ class AutoUpdateTest {
     }
 
     @Test
-    fun nothingToDoWhenUpToDateOrUnknown() {
-        assertEquals(AutoUpdatePlan.None, plan(installed = "1.3.0"))
-        assertEquals(AutoUpdatePlan.None, plan(installed = "1.4.0"))
-        assertEquals(AutoUpdatePlan.None, plan(installed = null))
+    fun nothingToDoWithoutAnUpdate() {
+        // Whether a release is newer for the TV is ReleaseChannel.updateFor's job (see ReleaseChannelTest).
         assertEquals(AutoUpdatePlan.None, plan(latest = null))
     }
 
