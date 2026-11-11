@@ -40,16 +40,16 @@ fun main(args: Array<String>) {
             "scan" -> tv.nuvio.installer.core.TvDiscovery.scan(args[1], args.getOrNull(2)?.toInt() ?: 24).forEach {
                 println("${it.ip}  ${it.status.name}  ${it.status.model}  developerMode=${it.status.developerMode} hostPcIp=${it.status.developerIp}")
             }
-            "install" -> installer.install(args[1], File(args[2]))
+            "install" -> installer.install(args[1], File(args[2]), app = appArg(args.getOrNull(3)))
             "ca" -> { SamsungCertificates(File(data, "ca")).ensureAuthorities(events); println(File(data, "ca").list()?.sorted()) }
-            "releases" -> tv.nuvio.installer.core.GitHubReleases().recent().forEach { println("${it.label} -> ${it.wgtAsset?.name} ${it.wgtAsset?.digest}") }
+            "releases" -> tv.nuvio.installer.core.GitHubReleases.of(appArg(args.getOrNull(1))).forEach { r -> println("${r.label} -> " + r.assets.filter { it.name.endsWith(".wgt") || it.name.endsWith(".tpk") }.joinToString { it.name }) }
             "validate" -> println(tv.nuvio.installer.core.WgtPackage.validate(File(args[1]), events))
-            "launch" -> installer.launch(args[1])
+            "launch" -> installer.launch(args[1], appArg(args.getOrNull(2)))
             "type" -> tv.nuvio.installer.core.SamsungRemote.connect(args[1], token = args.getOrNull(3)).use { remote ->
                 remote.sendText(args[2])
                 println("Sent. Token for next time: ${remote.token}")
             }
-            "uninstall" -> installer.uninstall(args[1])
+            "uninstall" -> installer.uninstall(args[1], appArg(args.getOrNull(2)))
             "import" -> println("Imported identity for DUID " + IdentityStore(File(data, "identities")).import(File(args[1]).readText()).duid)
             "sign" -> {
                 val identity = SigningIdentity.parse(File(args[2]).readText())
@@ -57,7 +57,7 @@ fun main(args: Array<String>) {
                 println("Signed ${args[3]} (author chain valid: ${identity.hasValidAuthorChain()})")
             }
             else -> {
-                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt> | launch <ip> | type <ip> <text> [token] | uninstall <ip> | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
+                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt/tpk> [legacy] | launch <ip> [legacy] | releases [legacy] | type <ip> <text> [token] | uninstall <ip> [legacy] | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
                 exitProcess(2)
             }
         }
@@ -66,3 +66,7 @@ fun main(args: Array<String>) {
         exitProcess(1)
     }
 }
+
+/** "legacy" picks Nuvio Legacy; anything else (or nothing) Nuvio TV. */
+private fun appArg(value: String?): tv.nuvio.installer.core.NuvioApp =
+    if (value.equals("legacy", ignoreCase = true)) tv.nuvio.installer.core.NuvioApp.LEGACY else tv.nuvio.installer.core.NuvioApp.TV
