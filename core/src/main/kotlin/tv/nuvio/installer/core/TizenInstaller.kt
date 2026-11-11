@@ -223,6 +223,13 @@ class TizenInstaller(
         }
     }
 
+    /**
+     * The certificate check for [app] on the TV with [duid], without connecting: [installed] is
+     * the app's entry from the TV's app list (from [probe]), null when it is not installed.
+     */
+    fun preflight(duid: String, installed: Map<String, String>?, app: NuvioApp = NuvioApp.TV): Preflight =
+        CertificatePreflight.check(validCandidates(duid), installed, app = app)
+
     private fun validCandidates(duid: String): List<SigningIdentity> =
         identities.candidatesFor(duid).filter { identity ->
             identity.hasValidAuthorChain().also { valid ->
