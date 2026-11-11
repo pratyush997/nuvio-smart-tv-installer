@@ -35,6 +35,7 @@ import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.CertificateExpiredException
 import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.ReleaseChannel
 import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.RememberedTv
 import tv.nuvio.installer.core.SamsungSession
@@ -80,6 +81,7 @@ const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 const val PREF_AUTO_UPDATE = "autoUpdate"
+const val PREF_BETA_CHANNEL = "betaChannel"
 const val PREF_TV_DUID = "tvDuid"
 private const val PREF_BACKUP_PASSWORD = "backupPassword"
 
@@ -155,8 +157,24 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** Result of this app's own update check, for the About popup (the banner above can be dismissed). */
     var appUpdateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Checking)
         private set
-    var releases by mutableStateOf<List<Release>>(emptyList())
+    /** Nuvio releases as loaded from GitHub, pre-releases included. */
+    private var allReleases by mutableStateOf<List<Release>>(emptyList())
+
+    /** Offer Nuvio pre-releases (beta versions) too. */
+    var betaChannel by mutableStateOf(prefs.getBoolean(PREF_BETA_CHANNEL, false))
         private set
+
+    /** The releases on the chosen channel, newest first. */
+    val releases: List<Release>
+        get() = ReleaseChannel.visible(allReleases, betaChannel)
+
+    fun updateBetaChannel(on: Boolean) {
+        betaChannel = on
+        prefs.edit().putBoolean(PREF_BETA_CHANNEL, on).apply()
+        val selected = (source as? PackageSource.FromRelease)?.release
+        // Leaving beta: a selected pre-release is no longer offered. Joining: offer the newest version.
+        if (on || selected == null || selected !in releases) latestRelease?.let { source = PackageSource.FromRelease(it) }
+    }
     var releasesError by mutableStateOf<String?>(null)
         private set
     var source by mutableStateOf<PackageSource?>(null)
@@ -309,7 +327,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Newest stable release, or the newest pre-release when there is no stable one. */
     val latestRelease: Release?
-        get() = releases.firstOrNull { !it.prerelease } ?: releases.firstOrNull()
+        get() = ReleaseChannel.latest(allReleases, betaChannel)
 
     /** One-tap update (from the "new version" notification): installs the newest release. */
     fun updateNow() {
@@ -348,7 +366,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 val list = withContext(Dispatchers.IO) { GitHubReleases().recent() }
-                releases = list
+                allReleases = list
                 if (source == null) latestRelease?.let { source = PackageSource.FromRelease(it) }
                 tryPendingUpdate()
             } catch (e: Exception) {

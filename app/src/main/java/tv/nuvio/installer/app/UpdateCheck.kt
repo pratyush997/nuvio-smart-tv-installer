@@ -28,6 +28,7 @@ import tv.nuvio.installer.core.CertificateExpiry
 import tv.nuvio.installer.core.InstallerEvents
 import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.ReleaseChannel
 import tv.nuvio.installer.core.ReleaseNotes
 import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.SamsungCertificates
@@ -96,7 +97,7 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
 
     private fun checkNuvio(prefs: android.content.SharedPreferences) {
         val installed = prefs.getString(PREF_INSTALLED_VERSION, null) ?: return
-        val latest = GitHubReleases().recent().firstOrNull { !it.prerelease } ?: return
+        val latest = ReleaseChannel.latest(GitHubReleases().recent(), beta = prefs.getBoolean(PREF_BETA_CHANNEL, false)) ?: return
         val tvIp = prefs.getString("tvIp", "").orEmpty()
         val store = IdentityStore(File(applicationContext.filesDir, "identities"))
         val duid = prefs.getString(PREF_TV_DUID, null)
