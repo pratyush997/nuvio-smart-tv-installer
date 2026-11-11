@@ -67,17 +67,16 @@ object AutoUpdate {
     /** Tries per release before giving up and only notifying. */
     const val MAX_ATTEMPTS = 3
 
+    /** [update] is the newer release for the TV ([ReleaseChannel.updateFor]); null when it is up to date. */
     fun plan(
-        installed: String?,
-        latest: Release?,
+        update: Release?,
         enabled: Boolean,
         tvIp: String,
         onWifi: Boolean,
         hasCertificate: Boolean,
         attempts: Int,
     ): AutoUpdatePlan {
-        if (installed == null || latest == null) return AutoUpdatePlan.None
-        if (TizenInstaller.compareVersions(installed, latest.tag_name) != -1) return AutoUpdatePlan.None
+        val latest = update ?: return AutoUpdatePlan.None
         if (!enabled) return AutoUpdatePlan.Notify(latest, null)
         val reason = when {
             latest.wgtAsset == null -> "the release has no Samsung package"

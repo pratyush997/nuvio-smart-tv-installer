@@ -50,6 +50,17 @@ class SavedTvsTest {
     }
 
     @Test
+    fun aCheckKeepsTheReleaseTheAppInstalled() {
+        // A check knows only the number the TV reports; the beta the app installed is kept.
+        val onBeta = living.copy(installedVersion = "1.4.0", installedTag = "1.4.0-beta.2", installedBeta = true)
+        val checked = SavedTvs.upsert(listOf(onBeta), living.copy(installedVersion = "1.4.0")).single()
+        assertEquals("1.4.0-beta.2", checked.installedTag)
+        assertTrue(checked.onBeta)
+        assertEquals("1.4.0-beta.2", checked.installedLabel)
+        assertEquals(listOf(onBeta), SavedTvs.decode(SavedTvs.encode(listOf(onBeta))))
+    }
+
+    @Test
     fun aNewTvIsAddedAtTheEnd() {
         assertEquals(listOf(living, bedroom), SavedTvs.upsert(listOf(living), bedroom))
     }

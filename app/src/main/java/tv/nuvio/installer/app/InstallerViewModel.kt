@@ -85,7 +85,6 @@ const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 const val PREF_AUTO_UPDATE = "autoUpdate"
-const val PREF_BETA_CHANNEL = "betaChannel"
 const val PREF_THEME_MODE = "themeMode"
 const val PREF_TV_DUID = "tvDuid"
 private const val PREF_BACKUP_PASSWORD = "backupPassword"
@@ -236,24 +235,12 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** Result of this app's own update check, for the About popup (the banner above can be dismissed). */
     var appUpdateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Checking)
         private set
-    /** Nuvio releases as loaded from GitHub, pre-releases included. */
-    private var allReleases by mutableStateOf<List<Release>>(emptyList())
-
-    /** Offer Nuvio pre-releases (beta versions) too. */
-    var betaChannel by mutableStateOf(prefs.getBoolean(PREF_BETA_CHANNEL, false))
+    /**
+     * Nuvio releases as loaded from GitHub, newest first. Pre-releases are included: all are
+     * offered in the version menu; only full releases count as "latest" (see [latestRelease]).
+     */
+    var releases by mutableStateOf<List<Release>>(emptyList())
         private set
-
-    /** The releases on the chosen channel, newest first. */
-    val releases: List<Release>
-        get() = ReleaseChannel.visible(allReleases, betaChannel)
-
-    fun updateBetaChannel(on: Boolean) {
-        betaChannel = on
-        prefs.edit().putBoolean(PREF_BETA_CHANNEL, on).apply()
-        val selected = (source as? PackageSource.FromRelease)?.release
-        // Leaving beta: a selected pre-release is no longer offered. Joining: offer the newest version.
-        if (on || selected == null || selected !in releases) latestRelease?.let { source = PackageSource.FromRelease(it) }
-    }
     var releasesError by mutableStateOf<String?>(null)
         private set
     var source by mutableStateOf<PackageSource?>(null)
@@ -399,16 +386,32 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     val installedVersion: String?
         get() = tvInfo?.installedApp?.get("app_version")?.takeIf { it.isNotBlank() }
 
+    /** The selected TV, when it runs a beta this app installed (see [SavedTv.onBeta]). */
+    private val tvOnBeta: SavedTv?
+        get() = currentTv?.takeIf { it.onBeta && installedVersion != null && it.installedVersion == installedVersion }
+
+    /** What is on the TV, as the user knows it: "1.4.0-beta.2" for a beta, else the number the TV reports. */
+    val installedLabel: String?
+        get() = tvOnBeta?.installedLabel ?: installedVersion
+
+    /** How [release] compares with what is on the TV: -1 when it is newer, null when unknown. */
+    private fun compareWithInstalled(release: Release): Int? {
+        val installed = installedVersion ?: return null
+        val beta = tvOnBeta
+        return if (beta != null) ReleaseChannel.compare(beta.installedTag.orEmpty(), true, release.tag_name, release.prerelease)
+        else ReleaseChannel.compare(installed, false, release.tag_name, release.prerelease)
+    }
+
     /** Label for the main button, based on what is on the TV and what is selected. */
     val primaryLabel: String
         get() {
             val selected = source ?: return "Install"
-            val target = (selected as? PackageSource.FromRelease)?.version ?: return "Install selected file"
-            val installed = installedVersion
+            val release = (selected as? PackageSource.FromRelease)?.release ?: return "Install selected file"
+            val target = selected.version
             return when {
                 tvState != TvState.ONLINE -> "Install Nuvio $target"
-                installed == null -> "Install Nuvio $target"
-                else -> when (TizenInstaller.compareVersions(installed, target)) {
+                installedVersion == null -> "Install Nuvio $target"
+                else -> when (compareWithInstalled(release)) {
                     0 -> "Reinstall $target"
                     -1 -> "Update to $target"
                     1 -> "Install older $target"
@@ -450,9 +453,12 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Newest stable release, or the newest pre-release when there is no stable one. */
+    /**
+     * The newest release for the selected TV: the newest full release, or, while the TV runs a
+     * beta, the newest version overall (see [ReleaseChannel.latestFor]).
+     */
     val latestRelease: Release?
-        get() = ReleaseChannel.latest(allReleases, betaChannel)
+        get() = ReleaseChannel.latestFor(releases, currentTv)
 
     /**
      * One-tap update (from the "new version" notification): installs the newest release on the
@@ -467,7 +473,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun tryPendingUpdate() {
-        if (!pendingUpdate || busy != null || allReleases.isEmpty()) return
+        if (!pendingUpdate || busy != null || releases.isEmpty()) return
         val wanted = pendingUpdateTv?.let { SavedTvs.withKey(savedTvs, it) }
         pendingUpdateTv = null
         if (wanted != null && currentTv?.key != wanted.key) {
@@ -476,11 +482,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         pendingUpdate = false
-        val latest = latestRelease ?: return
-        source = PackageSource.FromRelease(latest)
-        val installed = installedVersion
-        if (tvState == TvState.ONLINE && installed != null && TizenInstaller.compareVersions(installed, latest.tag_name) == 0) {
-            outcome = Outcome(OutcomeKind.SUCCESS, "Already up to date", "Your TV already has Nuvio $installed.")
+        val target = latestRelease ?: return
+        source = PackageSource.FromRelease(target)
+        if (tvState == TvState.ONLINE && (compareWithInstalled(target) ?: -1) >= 0) {
+            outcome = Outcome(OutcomeKind.SUCCESS, "Already up to date", "Your TV already has Nuvio $installedLabel.")
             return
         }
         install()
@@ -502,7 +507,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 val list = withContext(Dispatchers.IO) { GitHubReleases().recent() }
-                allReleases = list
+                releases = list
                 if (source == null) latestRelease?.let { source = PackageSource.FromRelease(it) }
                 tryPendingUpdate()
             } catch (e: Exception) {
@@ -685,6 +690,17 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /**
+     * Remembers which GitHub release was put on the selected TV, so updates know whether it runs
+     * a beta. Installing a file forgets it.
+     */
+    private fun rememberInstalledRelease(installed: PackageSource?) {
+        val release = (installed as? PackageSource.FromRelease)?.release
+        savedTvs = TvList.update(prefs) { list ->
+            list.map { if (it.ip == tvIp) it.copy(installedTag = release?.tag_name, installedBeta = release?.prerelease == true) else it }
+        }
+    }
+
     /** Remembered so the background update check knows what is on the TV. */
     private fun rememberInstalledVersion(info: TvInfo) {
         val version = info.installedApp?.get("app_version")?.takeIf { it.isNotBlank() }
@@ -749,6 +765,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun install() = run("Install") {
+        val installing = source
         events.stage(InstallStage.PACKAGE)
         val wgt = preparePackage()
         val certificatesBefore = identityStore.all().map { it.first.name }.toSet()
@@ -762,9 +779,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             if (identityStore.all().any { it.first.name !in certificatesBefore }) backupNote = autoBackup()
         }
         refreshTvQuietly()
+        withContext(Dispatchers.Main) { rememberInstalledRelease(installing) }
         Outcome(
             OutcomeKind.SUCCESS, "Nuvio is on your TV",
-            "Version ${installedVersion ?: source?.version.orEmpty()} is installed. Open it from the TV's Apps screen.$backupNote",
+            "Version ${installedLabel ?: installing?.version.orEmpty()} is installed. Open it from the TV's Apps screen.$backupNote",
         )
     }
 

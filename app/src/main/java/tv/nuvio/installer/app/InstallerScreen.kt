@@ -545,7 +545,7 @@ private fun TvCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InfoTile("Nuvio on TV", Modifier.weight(1f)) {
-                val installed = vm.installedVersion
+                val installed = vm.installedLabel
                 Text(
                     when {
                         vm.tvState != TvState.ONLINE -> "—"
@@ -633,7 +633,7 @@ private fun TvRow(tv: SavedTv, selected: Boolean, enabled: Boolean, onSelect: ()
                 BrandTag(tv.brand)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    tv.installedVersion?.let { "Nuvio $it" } ?: "No Nuvio yet",
+                    tv.installedLabel?.let { "Nuvio $it" } ?: "No Nuvio yet",
                     color = Palette.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -987,7 +987,10 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
             val latest = vm.latestRelease
             vm.releases.forEach { release ->
                 DropdownMenuItem(
-                    text = { Text("Nuvio ${release.label}" + if (release == latest) "  (latest)" else "") },
+                    text = {
+                        val tag = listOfNotNull("latest".takeIf { release == latest }, "beta".takeIf { release.prerelease }).joinToString(" · ")
+                        Text("Nuvio ${release.label}" + if (tag.isNotEmpty()) "  ($tag)" else "")
+                    },
                     onClick = { vm.source = PackageSource.FromRelease(release); open = false },
                 )
             }
@@ -995,19 +998,6 @@ private fun VersionTile(vm: InstallerViewModel, modifier: Modifier, enabled: Boo
                 DropdownMenuItem(text = { Text("Retry loading versions") }, onClick = { vm.loadReleases(); open = false })
             }
             HorizontalDivider()
-            DropdownMenuItem(
-                text = {
-                    Column {
-                        Text("Beta versions")
-                        Text(
-                            if (vm.betaChannel) "On: pre-releases are offered and installed" else "Off: only full releases",
-                            color = Palette.Muted, fontSize = 12.sp,
-                        )
-                    }
-                },
-                trailingIcon = { androidx.compose.material3.Switch(checked = vm.betaChannel, onCheckedChange = null) },
-                onClick = { vm.updateBetaChannel(!vm.betaChannel) },
-            )
             DropdownMenuItem(text = { Text("Choose a .wgt file…") }, onClick = { open = false; onPickFile() })
         }
     }
