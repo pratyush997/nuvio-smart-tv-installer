@@ -1,6 +1,6 @@
 # Handoff: TV diagnostics (specs, vitals, speed test, stream stats)
 
-Status: **idea approved, nothing built.** Date: 2026-11-11. Base commit: `edd9839` (1.3.1).
+Status: **PARKED (2026-11-11). Do not start.** Nothing built. Base commit: `edd9839` (1.3.1). Before resuming, re-check the facts below: the base commit and working tree note are stale, `findApp`/`readPlatformVersion` are private, and the spike needs Host PC IP set to the PC.
 
 ## Goal
 
