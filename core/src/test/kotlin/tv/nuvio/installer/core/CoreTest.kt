@@ -54,6 +54,9 @@ class CoreTest {
         val plain = server.extractAccess("/signin/callback?access_token=t2&user_id=u2", "")
         assertEquals("t2", plain?.accessToken); assertEquals("u2", plain?.userId)
         assertNull(server.extractAccess("/favicon.ico", ""))
+        assertNull(get?.expiresInSeconds)
+        val timed = """{"access_token":"tok","userId":"u1","access_token_expires_in":"86400","refresh_token":"r"}"""
+        assertEquals(86400L, server.extractAccess("/signin/callback", "code=" + java.net.URLEncoder.encode(timed, "UTF-8"))?.expiresInSeconds)
     }
 
     @Test
