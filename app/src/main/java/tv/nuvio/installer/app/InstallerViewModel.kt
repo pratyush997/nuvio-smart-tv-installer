@@ -46,6 +46,7 @@ import java.io.OutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -148,6 +149,9 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     var identityCount by mutableStateOf(0)
         private set
     var hasIdentityForTv by mutableStateOf(false)
+        private set
+    /** When the certificate for this TV stops working (or, with no TV connected, the soonest of all saved ones). */
+    var certExpiresAt by mutableStateOf<Instant?>(null)
         private set
     val log = mutableStateListOf<LogLine>()
 
@@ -357,7 +361,13 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private fun refreshIdentities() {
         val all = identityStore.all().filter { it.second.isUsable }
         identityCount = all.size
-        hasIdentityForTv = tvInfo?.duid?.let { duid -> all.any { it.second.duid == duid } } ?: false
+        val duid = tvInfo?.duid
+        hasIdentityForTv = duid?.let { all.any { it.second.duid == duid } } ?: false
+        certExpiresAt = if (duid != null) {
+            identityStore.candidatesFor(duid).firstOrNull()?.expiresAt()
+        } else {
+            all.mapNotNull { it.second.expiresAt() }.minOrNull()
+        }
     }
 
     private class TvCheck(val info: TvInfo?, val error: String?, val status: SamsungTvStatus?)
