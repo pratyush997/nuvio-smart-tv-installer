@@ -37,6 +37,9 @@ fun main(args: Array<String>) {
     try {
         when (args.getOrNull(0)) {
             "probe" -> println(installer.probe(args[1]))
+            "scan" -> tv.nuvio.installer.core.TvDiscovery.scan(args[1], args.getOrNull(2)?.toInt() ?: 24).forEach {
+                println("${it.ip}  ${it.status.name}  ${it.status.model}  developerMode=${it.status.developerMode} hostPcIp=${it.status.developerIp}")
+            }
             "install" -> installer.install(args[1], File(args[2]))
             "ca" -> { SamsungCertificates(File(data, "ca")).ensureAuthorities(events); println(File(data, "ca").list()?.sorted()) }
             "releases" -> tv.nuvio.installer.core.GitHubReleases().recent().forEach { println("${it.label} -> ${it.wgtAsset?.name} ${it.wgtAsset?.digest}") }
@@ -50,7 +53,7 @@ fun main(args: Array<String>) {
                 println("Signed ${args[3]} (author chain valid: ${identity.hasValidAuthorChain()})")
             }
             else -> {
-                println("usage: probe <ip> | install <ip> <wgt> | launch <ip> | uninstall <ip> | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
+                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt> | launch <ip> | uninstall <ip> | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
                 exitProcess(2)
             }
         }

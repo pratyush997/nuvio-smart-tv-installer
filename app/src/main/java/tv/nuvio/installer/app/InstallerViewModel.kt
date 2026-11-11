@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.GitHubReleases
 import tv.nuvio.installer.core.IdentityStore
 import tv.nuvio.installer.core.InstallStage
@@ -31,10 +32,12 @@ import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
+import tv.nuvio.installer.core.RememberedTv
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
 import tv.nuvio.installer.core.SamsungTvStatus
 import tv.nuvio.installer.core.TizenInstaller
+import tv.nuvio.installer.core.TvDiscovery
 import tv.nuvio.installer.core.TvInfo
 import tv.nuvio.installer.core.TvNetwork
 import tv.nuvio.installer.core.downloadFile
@@ -67,14 +70,17 @@ enum class OutcomeKind { SUCCESS, ERROR, NEEDS_CERTIFICATE }
 
 data class Outcome(val kind: OutcomeKind, val title: String, val message: String)
 
-/** The phone's address on the local network; [ip] is null when it has none. */
-data class PhoneNetwork(val ip: String?, val prefixLength: Int)
+/** The phone's address on the local network; [ip] is null when it has none. [gateway] is the router. */
+data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: String? = null)
 
 const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
 const val BACKUP_FILE_NAME = "nuvio-tizen-certificates.zip"
 const val PREF_APP_NOTIFIED_TAG = "appNotifiedTag"
+const val PREF_TV_ID = "tvId"
+const val PREF_TV_NAME = "tvName"
+const val PREF_TV_MODEL = "tvModel"
 private const val PREF_APP_DISMISSED_TAG = "appDismissedTag"
 
 class InstallerViewModel(application: Application) : AndroidViewModel(application) {
@@ -119,6 +125,12 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var tvInfo by mutableStateOf<TvInfo?>(null)
         private set
+    /** True while the network scan for TVs runs. */
+    var scanning by mutableStateOf(false)
+        private set
+    /** TVs found by the last scan; null before the first scan. */
+    var foundTvs by mutableStateOf<List<FoundTv>?>(null)
+        private set
 
     /** Non-null while an action runs; the action's name. */
     var busy by mutableStateOf<String?>(null)
@@ -147,7 +159,41 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         showGuide = !prefs.getBoolean("setupDone", false)
         loadReleases()
         checkAppUpdate()
-        if (tvIp.isNotBlank()) checkTv()
+        if (tvIp.isNotBlank()) checkTv() else scanForTvs(autoSelect = true)
+    }
+
+    /**
+     * Looks for Samsung TVs on the phone's Wi-Fi. With [autoSelect], a single TV found while no
+     * TV IP is set yet is selected and checked straight away.
+     */
+    fun scanForTvs(autoSelect: Boolean = false) {
+        if (scanning) return
+        refreshPhoneIp()
+        val phone = phoneNetwork
+        val ip = phone.ip
+        if (ip == null) {
+            foundTvs = emptyList()
+            return
+        }
+        scanning = true
+        viewModelScope.launch {
+            try {
+                val found = withContext(Dispatchers.IO) { TvDiscovery.scan(ip, phone.prefixLength) }
+                foundTvs = found
+                log.add(LogLine(LogLevel.INFO, "Network scan: ${found.size} Samsung TV${if (found.size == 1) "" else "s"} found" +
+                    found.joinToString("") { "\n  ${it.ip} ${it.status.name}" }))
+                if (autoSelect && tvIp.isBlank() && found.size == 1) selectTv(found.single())
+            } finally {
+                scanning = false
+            }
+        }
+    }
+
+    /** Uses a TV from the scan results. */
+    fun selectTv(tv: FoundTv) {
+        if (busy != null) return
+        updateTvIp(tv.ip)
+        checkTv()
     }
 
     /** Never throws: an offline phone just shows "couldn't check" in About. */
@@ -328,23 +374,33 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         ipReport = null
         viewModelScope.launch {
             try {
-                val check = if (TvNetwork.isValidIpv4(ip) && ip != phone.ip) {
-                    withContext(Dispatchers.IO) {
-                        val status = async { runCatching { TvNetwork.fetchStatus(ip) }.getOrNull() }
-                        try {
-                            TvCheck(installer().probe(ip), null, status.await())
-                        } catch (e: Exception) {
-                            TvCheck(null, e.message ?: e.javaClass.simpleName, status.await())
+                var target = ip
+                var check = probeTv(ip, phone)
+                val phoneIp = phone.ip
+                if (check.info == null && check.status == null && phoneIp != null && TvNetwork.isValidIpv4(ip)) {
+                    // Nothing answered at the saved IP: the router may have given the TV a new one.
+                    val remembered = rememberedTv()
+                    if (remembered != null) {
+                        val found = withContext(Dispatchers.IO) { TvDiscovery.scan(phoneIp, phone.prefixLength) }
+                        foundTvs = found
+                        val moved = TvDiscovery.findRemembered(remembered, found)
+                        if (moved != null && moved.ip != ip) {
+                            log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new address."))
+                            target = moved.ip
+                            tvIp = target
+                            prefs.edit().putString("tvIp", target).apply()
+                            check = probeTv(target, phone)
                         }
                     }
-                } else TvCheck(null, null, null)
+                }
                 val report = TvNetwork.report(
-                    phone.ip, phone.prefixLength, ip, check.status, check.info != null, check.error,
-                    prefs.getString("lastGoodPhoneIp", null),
+                    phone.ip, phone.prefixLength, target, check.status, check.info != null, check.error,
+                    prefs.getString("lastGoodPhoneIp", null), phone.gateway,
                 )
                 ipReport = report
                 tvName = check.status?.name.orEmpty()
                 tvInfo = check.info
+                check.status?.let(::rememberTv)
                 if (check.info != null) {
                     tvState = TvState.ONLINE
                     phone.ip?.let { prefs.edit().putString("lastGoodPhoneIp", it).apply() }
@@ -361,6 +417,36 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 tryPendingUpdate()
             }
         }
+    }
+
+    /** Asks the TV's info port and tries the installer connection, in parallel. */
+    private suspend fun probeTv(ip: String, phone: PhoneNetwork): TvCheck {
+        if (!TvNetwork.isValidIpv4(ip) || ip == phone.ip) return TvCheck(null, null, null)
+        return withContext(Dispatchers.IO) {
+            val status = async { runCatching { TvNetwork.fetchStatus(ip) }.getOrNull() }
+            try {
+                TvCheck(installer().probe(ip), null, status.await())
+            } catch (e: Exception) {
+                TvCheck(null, e.message ?: e.javaClass.simpleName, status.await())
+            }
+        }
+    }
+
+    /** Remembers which TV answered, so it can be found again after the router gives it a new IP. */
+    private fun rememberTv(status: SamsungTvStatus) {
+        if (status.name.isEmpty()) return
+        prefs.edit()
+            .putString(PREF_TV_ID, status.id)
+            .putString(PREF_TV_NAME, status.name)
+            .putString(PREF_TV_MODEL, status.model)
+            .apply()
+    }
+
+    private fun rememberedTv(): RememberedTv? {
+        val name = prefs.getString(PREF_TV_NAME, null).orEmpty()
+        val id = prefs.getString(PREF_TV_ID, null)
+        if (name.isEmpty() && id.isNullOrEmpty()) return null
+        return RememberedTv(id, name, prefs.getString(PREF_TV_MODEL, null).orEmpty())
     }
 
     /** Remembered so the background update check knows what is on the TV. */
@@ -634,9 +720,13 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                     if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
                         !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                     ) continue
-                    val link = manager.getLinkProperties(network)?.linkAddresses
-                        ?.firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress } ?: continue
-                    return PhoneNetwork(link.address.hostAddress, link.prefixLength)
+                    val properties = manager.getLinkProperties(network) ?: continue
+                    val link = properties.linkAddresses
+                        .firstOrNull { it.address is Inet4Address && !it.address.isLoopbackAddress } ?: continue
+                    val gateway = properties.routes
+                        .firstOrNull { it.isDefaultRoute && it.gateway is Inet4Address && !it.gateway!!.isAnyLocalAddress }
+                        ?.gateway?.hostAddress
+                    return PhoneNetwork(link.address.hostAddress, link.prefixLength, gateway)
                 }
             }
         }
