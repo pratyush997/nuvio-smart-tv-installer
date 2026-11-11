@@ -52,7 +52,7 @@ Updates do not need the Samsung sign-in again.
 
 ### More than one TV
 
-Tap **Add another TV** on the main screen and follow the guide for the new TV. Every TV uses this phone's IP as Host PC IP. Each TV gets its own certificate; a second TV set up while the Samsung sign-in is still saved (the certificate card shows how long) needs no new sign-in. Switch between TVs at the top of the TV card. Update notifications come one per TV.
+Tap **+** on the TV card and follow the guide for the new TV. Every TV uses this phone's IP as Host PC IP. Each TV gets its own certificate; a second TV set up while the Samsung sign-in is still saved (the certificate card shows how long) needs no new sign-in. Switch between TVs with **Switch** on the TV card. Update notifications come one per TV.
 
 When a new version of this app is out, it shows a banner and sends a notification. Tap **Download**, then open the downloaded file to update. Your TV setup and certificate are kept.
 
@@ -60,15 +60,15 @@ When a new version of this app is out, it shows a banner and sends a notificatio
 
 Samsung TVs only accept an update signed with the same certificate as the first install. The app creates that certificate during the first install and keeps it on your phone.
 
-- You can create it ahead of time with **Sign in with Samsung** on the certificate card (the TV must be connected), or let the first install do it.
+- You can create it ahead of time with **Sign in with Samsung** under **Certificate & backup** (the TV must be connected), or let the first install do it.
 - A backup (`nuvio-tizen-certificates.zip`) is saved to your phone's **Downloads** folder automatically when the certificate is created.
 - Keep that file. If you lose the certificate, you must uninstall Nuvio from the TV before you can install it again.
 - Already installed Nuvio with the desktop installer? Import its certificate file (`samsung-tv-certificate-….json`) with **Import** in the app.
-- The backup contains private keys. Do not share it. To protect it, tap **Add password** on the certificate card: backups are then encrypted and saved as `nuvio-tizen-certificates.nuviobackup`. If you forget the password, the backup cannot be opened.
+- The backup contains private keys. Do not share it. To protect it, tap **Add password** under **Certificate & backup**: backups are then encrypted and saved as `nuvio-tizen-certificates.nuviobackup`. If you forget the password, the backup cannot be opened.
 
 ## Troubleshooting
 
-Tap the refresh button next to the TV IP. The app checks each of these and shows a fix for the first one that fails:
+Every install or update runs these checks first, one by one, and stops at the first one that fails with a fix and **Check again**:
 
 | Check | Usual fix |
 | --- | --- |
@@ -77,10 +77,12 @@ Tap the refresh button next to the TV IP. The app checks each of these and shows
 | A Samsung TV answers at that IP | Turn the TV on; check the IP |
 | Developer Mode is on | Apps › `1 2 3 4 5` › Developer Mode On, then restart at the plug |
 | Host PC IP matches the phone | Change Host PC IP to the phone's current IP, then restart at the plug |
+| There is a file for this TV | Nuvio Legacy needs a 2018 or newer TV (Tizen 4 or later); pick another version if a release has no file for your TV |
+| Samsung sign-in | Nothing to do: Samsung's page opens during the install. If the TV needs a certificate this phone doesn't have, import it or uninstall Nuvio from the TV |
 
 The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host PC IP you typed. Reserving a fixed IP for your phone in the router settings avoids this; the app suggests it, with a link to the router's page, when it sees the phone's IP change.
 
-The **Activity log** at the bottom of the app shows every command and the TV's replies. Copy it into a bug report.
+**Activity** at the bottom of the app shows every command and the TV's replies. Copy it into a bug report.
 
 ## Privacy
 

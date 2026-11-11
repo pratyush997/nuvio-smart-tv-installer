@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import tv.nuvio.installer.core.NuvioApp
 import tv.nuvio.installer.core.TvBrand
 
 private const val GUIDE_STEPS = 6
@@ -133,12 +134,12 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
                         )
                     }
                     else -> when {
-                        vm.source == null || !connected -> GradientButton("Finish", enabled = true, onClick = vm::closeGuide, modifier = Modifier.weight(1f))
+                        vm.source(NuvioApp.TV) == null || !connected -> GradientButton("Finish", enabled = true, onClick = vm::closeGuide, modifier = Modifier.weight(1f))
                         vm.hasIdentityForTv -> GradientButton(
-                            vm.primaryLabel, enabled = !busy, onClick = { vm.closeGuide(); vm.install() }, modifier = Modifier.weight(1f),
+                            vm.buttonLabel(NuvioApp.TV), enabled = !busy, onClick = { vm.closeGuide(); vm.install(NuvioApp.TV) }, modifier = Modifier.weight(1f),
                         )
                         else -> GradientButton(
-                            "Sign in with Samsung", enabled = !busy, onClick = { vm.closeGuide(); vm.install() }, modifier = Modifier.weight(1f),
+                            "Sign in with Samsung", enabled = !busy, onClick = { vm.closeGuide(); vm.install(NuvioApp.TV) }, modifier = Modifier.weight(1f),
                         )
                     }
                 }
