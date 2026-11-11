@@ -59,7 +59,7 @@ Samsung TVs only accept an update signed with the same certificate as the first 
 - A backup (`nuvio-tizen-certificates.zip`) is saved to your phone's **Downloads** folder automatically when the certificate is created.
 - Keep that file. If you lose the certificate, you must uninstall Nuvio from the TV before you can install it again.
 - Already installed Nuvio with the desktop installer? Import its certificate file (`samsung-tv-certificate-….json`) with **Import** in the app.
-- The backup contains private keys. Do not share it.
+- The backup contains private keys. Do not share it. To protect it, tap **Add password** on the certificate card: backups are then encrypted and saved as `nuvio-tizen-certificates.nuviobackup`. If you forget the password, the backup cannot be opened.
 
 ## Troubleshooting
 

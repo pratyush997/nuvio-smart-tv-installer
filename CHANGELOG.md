@@ -8,6 +8,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - **Find my TV**: scans the phone's Wi-Fi for Samsung TVs and lists each one with its name, model and whether it is ready (Developer Mode on, Host PC IP set to this phone). Tap a TV to use it. On first start, a single TV found is selected automatically.
 - The app remembers your TV. When the router gives the TV a new IP, the check finds it again on the network and switches to the new address by itself.
 - When the phone's IP no longer matches Host PC IP on the TV, "How to fix it" now also suggests reserving the phone's IP in the router, with a link to the router's page, so it does not happen again.
+- The certificate card shows how long your TV's certificate is valid. From 30 days before it expires, the card and a notification warn you and explain what it means for Nuvio updates.
+- Backups can be protected with a password (certificate card › **Add password**). Protected backups are encrypted (AES-256-GCM) and saved as `nuvio-tizen-certificates.nuviobackup`; importing one asks for the password.
+- Before uploading, the app checks the saved certificate. Expired certificates are skipped. If Nuvio is on the TV and the only certificate for it has expired, the app says so and explains the fix (uninstall, then install again) instead of failing on the TV. If the certificate has never installed Nuvio on this TV, the activity log warns that the TV may refuse the update.
+- When the TV refuses an update because Nuvio was installed with a different certificate, the app now offers **Import certificate** and **Uninstall from TV** instead of a generic error.
+- **Several TVs, one sign-in**: after you sign in with Samsung, certificates for other TVs created within the next hour use the same sign-in. The sign-in is kept in memory only, never saved to the phone. If Samsung no longer accepts it, the app asks you to sign in again.
+- **Tizen Studio certificates**: if you would rather not sign in with Samsung on the phone, create a Samsung certificate in Tizen Studio's Certificate Manager, then tap **Import** and select both `author.p12` and `distributor.p12`. The app asks for the profile's password and saves the certificate for every TV (DUID) it lists.
 
 ## [1.3.1] - 2026-11-10
 

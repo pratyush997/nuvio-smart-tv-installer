@@ -8,7 +8,10 @@ import java.io.File
 data class TvInfo(val duid: String, val platformVersion: String, val installedApp: Map<String, String>?)
 
 /** Thrown when Nuvio is already on the TV but no certificate that could update it is available. */
-class MissingIdentityException(message: String) : InstallerException(message)
+open class MissingIdentityException(message: String, cause: Throwable? = null) : InstallerException(message, cause)
+
+/** Thrown when Nuvio is on the TV and the only saved certificates for it have expired. */
+class CertificateExpiredException(message: String) : MissingIdentityException(message)
 
 /**
  * Installs Nuvio TV on a Samsung Tizen TV over the network, the same way the desktop
@@ -23,6 +26,8 @@ class TizenInstaller(
     /** Opens the Samsung account login page (in a browser) for [url]. */
     private val openLogin: (url: String) -> Unit,
     private val loginReturnUrl: String? = null,
+    /** Shared between installers so one Samsung sign-in covers several TVs. */
+    private val session: SamsungSession = SamsungSession(),
 ) {
     companion object {
         val NUVIO_IDS = listOf("NuvioTV001.NuvioTV", "NuvioTV001", "NuvioTV001.Nuvio", "Nuvio", "NuvioTV.NuvioTV", "NuvioTV")
@@ -145,16 +150,12 @@ class TizenInstaller(
             }
 
             events.stage(InstallStage.SIGN)
-            var candidates = identities.candidatesFor(duid).filter { identity ->
-                identity.hasValidAuthorChain().also { valid ->
-                    if (!valid) events.info("Ignoring a saved certificate for this TV with an invalid certificate chain.")
-                }
-            }
-            if (candidates.isEmpty()) {
-                val installed = runCatching { findApp(client, NUVIO_IDS + metadata.packageId + metadata.appId) }.getOrNull()
-                if (installed != null) throw missingIdentity(installed)
-                candidates = listOf(createIdentity(duid))
-            } else {
+            val installed = runCatching { findApp(client, NUVIO_IDS + metadata.packageId + metadata.appId) }.getOrNull()
+            val preflight = CertificatePreflight.check(validCandidates(duid), installed)
+            preflight.notes.forEach(events::info)
+            preflight.blocked?.let { throw it }
+            val candidates = preflight.usable.ifEmpty { listOf(createIdentity(duid)) }
+            if (preflight.usable.isNotEmpty()) {
                 events.info(if (candidates.size == 1) "Using the saved certificate for this TV." else "Found ${candidates.size} saved certificates for this TV.")
             }
 
@@ -180,10 +181,12 @@ class TizenInstaller(
                     return
                 } catch (e: Exception) {
                     lastError = e
-                    if (e is InstallerException && isCertificateRejection(e.message.orEmpty()) && index + 1 < candidates.size) {
+                    val rejected = e is InstallerException && isCertificateRejection(e.message.orEmpty())
+                    if (rejected && index + 1 < candidates.size) {
                         events.info("The TV rejected this certificate; trying the next saved one.")
                         continue
                     }
+                    if (rejected && installed != null) throw CertificatePreflight.rejectedUpdate(installed, e)
                     throw e
                 } finally {
                     signed.delete()
@@ -193,34 +196,45 @@ class TizenInstaller(
         }
     }
 
-    private fun missingIdentity(installed: Map<String, String>) = MissingIdentityException(
-        "Nuvio TV ${installed["app_version"].orEmpty()} is already installed on this TV, signed with a certificate " +
-            "that is not on this phone. A new certificate cannot update it.\n\n" +
-            "Either import the certificate file from the desktop Nuvio TV Installer, " +
-            "or uninstall Nuvio from the TV first (then install again)."
-    )
+    private fun validCandidates(duid: String): List<SigningIdentity> =
+        identities.candidatesFor(duid).filter { identity ->
+            identity.hasValidAuthorChain().also { valid ->
+                if (!valid) events.info("Ignoring a saved certificate for this TV with an invalid certificate chain.")
+            }
+        }
 
     /**
      * Creates the signing certificate for the TV at [ip] without installing anything: reads the
      * TV's DUID, then runs the Samsung sign-in. Returns false when a usable one is already saved.
-     * Refuses when Nuvio is already on the TV under a certificate this device does not have,
-     * because a new certificate could never update that install.
+     * Expired certificates do not count. Refuses when Nuvio is already on the TV under a
+     * certificate this device does not have (or only has expired), because a new certificate
+     * could never update that install.
      */
     fun ensureCertificate(ip: String): Boolean {
         val (duid, installed) = connect(ip).use { client ->
             readDuid(client) to runCatching { findApp(client, NUVIO_IDS) }.getOrNull()
         }
-        if (identities.candidatesFor(duid).any { it.hasValidAuthorChain() }) {
+        val preflight = CertificatePreflight.check(validCandidates(duid), installed)
+        preflight.notes.forEach(events::info)
+        preflight.blocked?.let { throw it }
+        if (preflight.usable.isNotEmpty()) {
             events.success("A certificate for this TV is already saved on this device.")
             return false
         }
-        if (installed != null) throw missingIdentity(installed)
         createIdentity(duid)
         return true
     }
 
     private fun createIdentity(duid: String): SigningIdentity {
-        events.info("No certificate for this TV yet. Sign in with your Samsung account to create one.")
+        events.info("No certificate for this TV yet.")
+        val identity = session.withAccess(events, signIn = ::signIn) { access -> certificates.createIdentity(access, duid, events) }
+        identities.save(identity)
+        events.success("Samsung certificate created and saved for this TV. Back it up from the menu so future updates keep working.")
+        return identity
+    }
+
+    private fun signIn(): SamsungAccess {
+        events.info("Sign in with your Samsung account to create the certificate.")
         val server = SamsungLoginServer(returnUrl = loginReturnUrl)
         val access = server.use {
             it.start()
@@ -233,10 +247,7 @@ class TizenInstaller(
             }
         }
         events.success("Samsung login received.")
-        val identity = certificates.createIdentity(access, duid, events)
-        identities.save(identity)
-        events.success("Samsung certificate created and saved for this TV. Back it up from the menu so future updates keep working.")
-        return identity
+        return access
     }
 
     private fun upload(client: SdbClient, signed: File) {
