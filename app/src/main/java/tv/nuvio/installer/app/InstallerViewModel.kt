@@ -38,6 +38,7 @@ import tv.nuvio.installer.core.Release
 import tv.nuvio.installer.core.ReleaseChannel
 import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.RememberedTv
+import tv.nuvio.installer.core.SamsungRemote
 import tv.nuvio.installer.core.SamsungSession
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SamsungLoginServer
@@ -111,6 +112,59 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private val certificates = SamsungCertificates(File(application.filesDir, "samsung-ca"))
     /** One Samsung sign-in, kept in memory for an hour, covers certificates for several TVs. */
     private val samsungSession = SamsungSession()
+
+    /** The "Type on TV" dialog is open. */
+    var typeOnTvOpen by mutableStateOf(false)
+        private set
+
+    /** What the last "Type on TV" send did, for the dialog. */
+    var typeOnTvStatus by mutableStateOf<String?>(null)
+        private set
+
+    var typeOnTvSending by mutableStateOf(false)
+        private set
+
+    fun openTypeOnTv() {
+        typeOnTvStatus = null
+        typeOnTvOpen = true
+    }
+
+    fun closeTypeOnTv() {
+        typeOnTvOpen = false
+    }
+
+    /**
+     * Sends [text] to the TV's open keyboard, then presses Enter when [enter] is set. The first
+     * time, the TV asks whether to allow this phone; its answer (a token) is saved per TV.
+     */
+    fun sendTextToTv(text: String, enter: Boolean) {
+        if (typeOnTvSending || tvIp.isBlank()) return
+        typeOnTvSending = true
+        val tokenKey = "remoteToken:" + (prefs.getString(PREF_TV_ID, null) ?: tvIp)
+        val saved = prefs.getString(tokenKey, null)
+        typeOnTvStatus = if (saved == null) "If the TV asks whether to allow TV Installer, choose Allow." else "Sending…"
+        viewModelScope.launch {
+            typeOnTvStatus = try {
+                val token = withContext(Dispatchers.IO) {
+                    SamsungRemote.connect(tvIp, token = saved).use { remote ->
+                        if (text.isNotEmpty()) remote.sendText(text)
+                        if (enter) remote.pressKey("KEY_ENTER")
+                        remote.token
+                    }
+                }
+                if (token != null && token != saved) prefs.edit().putString(tokenKey, token).apply()
+                when {
+                    text.isEmpty() -> "Pressed Enter on the TV."
+                    enter -> "Sent \"$text\" and pressed Enter."
+                    else -> "Sent \"$text\". Nothing on the TV? Open a search box first, so its keyboard is showing."
+                }
+            } catch (e: Exception) {
+                e.message ?: "Could not reach the TV."
+            } finally {
+                typeOnTvSending = false
+            }
+        }
+    }
 
     /** Install new Nuvio versions on the TV from the background check, without asking. */
     var autoUpdate by mutableStateOf(prefs.getBoolean(PREF_AUTO_UPDATE, false))
