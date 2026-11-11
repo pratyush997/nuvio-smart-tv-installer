@@ -137,18 +137,27 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
 
     val pickWgt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::selectFile) }
     val importCert = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importIdentities) }
-    val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+    val exportCert = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         uri?.let(vm::exportIdentities)
     }
     var logOpen by rememberSaveable { mutableStateOf(false) }
     var aboutOpen by rememberSaveable { mutableStateOf(false) }
     if (aboutOpen) AboutDialog(vm, onDismiss = { aboutOpen = false })
+    vm.importPasswordRequest?.let { request ->
+        PasswordDialog(
+            title = "Backup password",
+            message = if (request.wrongPassword) "That password did not open the backup. Try again." else "This backup is protected. Type its password.",
+            confirmLabel = "Import",
+            needsConfirmation = false,
+            onDone = vm::answerImportPassword,
+        )
+    }
 
     // The automatic certificate backup could not write to Downloads: open the save dialog instead.
     LaunchedEffect(vm.backupRequest) {
         if (vm.backupRequest) {
             vm.backupRequestHandled()
-            exportCert.launch(BACKUP_FILE_NAME)
+            exportCert.launch(vm.backupFileName)
         }
     }
     // Once Nuvio is on the TV, ask (once) for permission to announce new versions.
@@ -196,7 +205,7 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                     vm,
                     enabled = !busy,
                     onImport = { importCert.launch(arrayOf("*/*")) },
-                    onBackup = { exportCert.launch(BACKUP_FILE_NAME) },
+                    onBackup = { exportCert.launch(vm.backupFileName) },
                     onSignIn = vm::createCertificate,
                 )
                 LogCard(vm, open = logOpen, onToggle = { logOpen = !logOpen }, copy = copy)
@@ -904,7 +913,80 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             SoftButton("Import", null, enabled = enabled, onClick = onImport, modifier = Modifier.weight(1f))
             SoftButton("Back up", null, enabled = enabled && vm.identityCount > 0, onClick = onBackup, modifier = Modifier.weight(1f))
         }
+        BackupProtection(vm, enabled)
     }
+}
+
+/** Password protection for backups: the backup file holds the certificate's private keys. */
+@Composable
+private fun BackupProtection(vm: InstallerViewModel, enabled: Boolean) {
+    var editing by remember { mutableStateOf(false) }
+    if (editing) {
+        PasswordDialog(
+            title = "Protect backups",
+            message = "Backups hold your TV certificate's private keys. With a password, the file is useless to anyone without it. " +
+                "Write the password down: if you forget it, the backup cannot be opened.",
+            confirmLabel = "Protect",
+            needsConfirmation = true,
+            onDone = { password -> editing = false; if (password != null) vm.setBackupPassword(password) },
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.Lock, contentDescription = null, tint = if (vm.backupProtected) Palette.Success else Palette.Faint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (vm.backupProtected) "Backups are password-protected" else "Backups are not password-protected",
+            color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f),
+        )
+        if (vm.backupProtected) {
+            TextButton(onClick = { vm.setBackupPassword(null) }, enabled = enabled) { Text("Remove", color = Palette.Muted) }
+        } else {
+            TextButton(onClick = { editing = true }, enabled = enabled) { Text("Add password", color = Palette.Link) }
+        }
+    }
+}
+
+/** Asks for a password (twice when [needsConfirmation]). [onDone] gets null on cancel. */
+@Composable
+internal fun PasswordDialog(title: String, message: String, confirmLabel: String, needsConfirmation: Boolean, onDone: (String?) -> Unit) {
+    var password by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    val tooShort = needsConfirmation && password.length < 6
+    val mismatch = needsConfirmation && again != password
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(message, fontSize = 13.sp, lineHeight = 18.sp)
+                OutlinedTextField(
+                    value = password, onValueChange = { password = it }, label = { Text("Password") }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+                if (needsConfirmation) {
+                    OutlinedTextField(
+                        value = again, onValueChange = { again = it }, label = { Text("Password again") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        isError = again.isNotEmpty() && mismatch,
+                    )
+                    Text(
+                        when {
+                            tooShort -> "At least 6 characters."
+                            again.isNotEmpty() && mismatch -> "The passwords do not match."
+                            else -> " "
+                        },
+                        color = Palette.Muted, fontSize = 12.sp,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onDone(password) }, enabled = password.isNotEmpty() && !tooShort && !mismatch) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
+    )
 }
 
 /** "Valid until …", or a warning when the certificate expires within 30 days or has expired. */
