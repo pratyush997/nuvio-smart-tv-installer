@@ -32,6 +32,7 @@ import tv.nuvio.installer.core.InstallerEvents
 import tv.nuvio.installer.core.InstallerException
 import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
+import tv.nuvio.installer.core.CertificateExpiredException
 import tv.nuvio.installer.core.MissingIdentityException
 import tv.nuvio.installer.core.Release
 import tv.nuvio.installer.core.RememberedTv
@@ -494,7 +495,11 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 outcome = withContext(Dispatchers.IO) { block() }
             } catch (e: MissingIdentityException) {
-                outcome = Outcome(OutcomeKind.NEEDS_CERTIFICATE, "Certificate needed", e.message.orEmpty())
+                outcome = Outcome(
+                    OutcomeKind.NEEDS_CERTIFICATE,
+                    if (e is CertificateExpiredException) "Certificate expired" else "Certificate needed",
+                    e.message.orEmpty(),
+                )
                 log.add(LogLine(LogLevel.ERROR, e.message.orEmpty()))
             } catch (e: Exception) {
                 val text = if (e is InstallerException) e.message.orEmpty() else "${e.javaClass.simpleName}: ${e.message}"
