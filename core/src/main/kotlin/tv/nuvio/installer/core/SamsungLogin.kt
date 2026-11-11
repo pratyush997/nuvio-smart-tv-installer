@@ -19,7 +19,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
-class SamsungAccess(val accessToken: String, val userId: String, val email: String)
+/** A Samsung sign-in. [expiresInSeconds] is how long Samsung says the token is valid, when it says. */
+class SamsungAccess(val accessToken: String, val userId: String, val email: String, val expiresInSeconds: Long? = null)
 
 /**
  * Receives the Samsung account OAuth result. Samsung redirects the browser to
@@ -175,7 +176,8 @@ class SamsungLoginServer(
         val token = map["access_token"] ?: map["accessToken"] ?: return null
         val userId = map["userId"] ?: map["user_id"] ?: ""
         val email = map["inputEmailID"] ?: map["email"] ?: userId
-        return SamsungAccess(token, userId, email)
+        val expiresIn = (map["access_token_expires_in"] ?: map["expires_in"])?.trim()?.toLongOrNull()
+        return SamsungAccess(token, userId, email, expiresIn)
     }
 
     private fun page(authorized: Boolean): String {

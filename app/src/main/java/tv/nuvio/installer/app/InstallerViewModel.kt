@@ -112,8 +112,11 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val identityStore = IdentityStore(File(application.filesDir, "identities"))
     private val certificates = SamsungCertificates(File(application.filesDir, "samsung-ca"))
-    /** One Samsung sign-in, kept in memory for an hour, covers certificates for several TVs. */
-    private val samsungSession = SamsungSession()
+    /**
+     * One Samsung sign-in covers certificates for several TVs. It is saved encrypted on this phone
+     * for as long as Samsung says the token is valid, so closing the app does not lose it.
+     */
+    private val samsungSession = SamsungSession(store = KeystoreSignInStore(application))
 
     /** The "Type on TV" dialog is open. */
     var typeOnTvOpen by mutableStateOf(false)
@@ -272,6 +275,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Set by the activity: opens the Samsung login page. */
     var loginOpener: ((String) -> Unit)? = null
+
+    /** When the saved Samsung sign-in expires; null when none is saved. Declared before init, which sets it. */
+    var signInExpiresAt by mutableStateOf<Instant?>(null)
+        private set
 
     init {
         refreshIdentities()
@@ -474,7 +481,19 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         loginOpener?.invoke(SamsungLoginServer.AUTH_URL)
     }
 
+    /** Re-reads [signInExpiresAt]; also clears it once the hour is over. */
+    fun refreshSignIn() {
+        signInExpiresAt = samsungSession.expiresAt()
+    }
+
+    /** Drops the kept Samsung sign-in: the next new certificate asks for a sign-in again. */
+    fun forgetSignIn() {
+        samsungSession.forget()
+        refreshSignIn()
+    }
+
     private fun refreshIdentities() {
+        refreshSignIn()
         val all = identityStore.all().filter { it.second.isUsable }
         identityCount = all.size
         val duid = tvInfo?.duid

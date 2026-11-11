@@ -32,6 +32,36 @@ import javax.xml.parsers.DocumentBuilderFactory
  */
 class SamsungCertificates(private val caDirectory: File) {
     companion object {
+        /**
+         * Builds the identity for a new distributor certificate: the author bundle and password of
+         * [base] unchanged, the distributor bundle new. Checks that Samsung listed every TV asked for.
+         */
+        fun assembleDistributor(
+            base: SigningIdentity,
+            keys: KeyPair,
+            distributorPem: String,
+            duid: String,
+            partnerCa: X509Certificate,
+            expectedDuids: List<String>? = null,
+        ): SigningIdentity {
+            val cert = runCatching { parseCertificate(distributorPem.toByteArray()) }.getOrElse {
+                throw InstallerException("Samsung did not return a valid distributor certificate: ${distributorPem.take(300)}")
+            }
+            val listed = TizenStudioCertificate.duids(cert)
+            val missing = (expectedDuids ?: listOf(duid)).filter { it !in listed }
+            if (missing.isNotEmpty()) {
+                throw InstallerException("Samsung's distributor certificate does not list ${missing.joinToString()}. The certificate was not saved; retry.")
+            }
+            return base.copy(
+                distributorCert = Base64.getEncoder().encodeToString(Pkcs12.write(keys.private, listOf(cert, partnerCa), base.password)),
+                distributorXML = Base64.getEncoder().encodeToString(distributorPem.toByteArray()),
+                duid = duid,
+                createdAt = Instant.now().toString(),
+                lastSuccessfulInstallAt = null,
+                lastSuccessfulPackageId = null,
+            )
+        }
+
         private const val EXTENSION_INFO_URL = "https://download.tizen.org/sdk/tizenstudio/official/extension_info.xml"
         private const val FALLBACK_EXTENSION_URL = "https://download.tizen.org/sdk/extensions/tizen-certificate-extension_2.0.70.zip"
         private const val AUTHORS_URL = "https://svdca.samsungqbe.com/apis/v3/authors"
@@ -140,30 +170,13 @@ class SamsungCertificates(private val caDirectory: File) {
             X500NameBuilder(BCStyle.INSTANCE).addRDN(BCStyle.CN, "Nuvio").build(), authorKeys.public
         ).build(JcaContentSignerBuilder("SHA512withRSA").build(authorKeys.private))
 
-        val altNames = GeneralNames(
-            arrayOf(
-                GeneralName(GeneralName.uniformResourceIdentifier, "URN:tizen:packageid="),
-                GeneralName(GeneralName.uniformResourceIdentifier, "URN:tizen:deviceid=$duid"),
-            )
-        )
-        val extensions = ExtensionsGenerator().apply { addExtension(Extension.subjectAlternativeName, false, altNames) }.generate()
-        val distributorCsr = JcaPKCS10CertificationRequestBuilder(
-            X500NameBuilder(BCStyle.INSTANCE).addRDN(BCStyle.CN, "TizenSDK").addRDN(BCStyle.EmailAddress, access.email).build(),
-            distributorKeys.public
-        ).addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extensions)
-            .build(JcaContentSignerBuilder("SHA512withRSA").build(distributorKeys.private))
-
         val common = listOf("access_token" to access.accessToken, "user_id" to access.userId, "platform" to "VD")
         val authorPem = Http.postMultipart(
             AUTHORS_URL, common,
             listOf(Http.FilePart("csr", "author.csr", "application/octet-stream", pem("CERTIFICATE REQUEST", authorCsr.encoded))),
             "Samsung author certificate request"
         )
-        val distributorPem = Http.postMultipart(
-            DISTRIBUTORS_URL, common + listOf("privilege_level" to "Partner", "developer_type" to "Individual"),
-            listOf(Http.FilePart("csr", "distributor.csr", "application/octet-stream", pem("CERTIFICATE REQUEST", distributorCsr.encoded))),
-            "Samsung distributor certificate request"
-        )
+        val distributorPem = requestDistributor(access, listOf(duid), distributorKeys)
 
         val authorCert = runCatching { parseCertificate(authorPem.toByteArray()) }.getOrElse {
             throw InstallerException("Samsung did not return a valid author certificate: ${authorPem.take(300)}")
@@ -194,6 +207,45 @@ class SamsungCertificates(private val caDirectory: File) {
             throw InstallerException("The new Samsung certificate bundle failed its self-check; it was not saved. Retry the install.")
         }
         return identity
+    }
+
+    /**
+     * Asks Samsung for a new distributor certificate listing [duids], for the author of [base].
+     * The author certificate and key stay byte-identical, so apps it installed keep updating.
+     * Returns an identity for the first DUID; [SharedProfile.identitiesToSave] makes the rest.
+     */
+    fun createDistributor(access: SamsungAccess, duids: List<String>, base: SigningIdentity, events: InstallerEvents): SigningIdentity {
+        if (access.accessToken.isBlank() || access.userId.isBlank()) {
+            throw InstallerException("Samsung did not return valid authorization data. Try signing in again.")
+        }
+        require(duids.isNotEmpty() && duids.size <= SharedProfile.MAX_TVS) { "1 to ${SharedProfile.MAX_TVS} TVs" }
+        ensureAuthorities(events)
+        events.info(
+            if (duids.size == 1) "Creating the Samsung certificate for this TV with your existing author key."
+            else "Creating one Samsung certificate for your ${duids.size} TVs, with your existing author key."
+        )
+        val distributorKeys = rsaKeyPair()
+        val distributorPem = requestDistributor(access, duids, distributorKeys)
+        return assembleDistributor(base, distributorKeys, distributorPem, duids.first(), ca(PARTNER_CA), expectedDuids = duids)
+    }
+
+    private fun requestDistributor(access: SamsungAccess, duids: List<String>, keys: KeyPair): String {
+        val names = listOf(GeneralName(GeneralName.uniformResourceIdentifier, "URN:tizen:packageid=")) +
+            duids.map { GeneralName(GeneralName.uniformResourceIdentifier, "URN:tizen:deviceid=$it") }
+        val extensions = ExtensionsGenerator().apply {
+            addExtension(Extension.subjectAlternativeName, false, GeneralNames(names.toTypedArray()))
+        }.generate()
+        val csr = JcaPKCS10CertificationRequestBuilder(
+            X500NameBuilder(BCStyle.INSTANCE).addRDN(BCStyle.CN, "TizenSDK").addRDN(BCStyle.EmailAddress, access.email).build(),
+            keys.public
+        ).addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extensions)
+            .build(JcaContentSignerBuilder("SHA512withRSA").build(keys.private))
+        val common = listOf("access_token" to access.accessToken, "user_id" to access.userId, "platform" to "VD")
+        return Http.postMultipart(
+            DISTRIBUTORS_URL, common + listOf("privilege_level" to "Partner", "developer_type" to "Individual"),
+            listOf(Http.FilePart("csr", "distributor.csr", "application/octet-stream", pem("CERTIFICATE REQUEST", csr.encoded))),
+            "Samsung distributor certificate request"
+        )
     }
 
     private fun rsaKeyPair(): KeyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()

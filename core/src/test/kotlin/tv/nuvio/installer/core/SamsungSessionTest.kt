@@ -13,7 +13,7 @@ import kotlin.test.assertSame
 
 class SamsungSessionTest {
     private var now = Instant.parse("2026-11-11T10:00:00Z")
-    private val session = SamsungSession(Duration.ofHours(1)) { now }
+    private val session = SamsungSession(Duration.ofHours(1), clock = { now })
     private val events = object : InstallerEvents {
         val lines = ArrayList<String>()
         override fun log(level: LogLevel, text: String) { lines += text }
@@ -28,6 +28,66 @@ class SamsungSessionTest {
         assertSame(first, session.current())
         now = now.plus(Duration.ofMinutes(1))
         assertNull(session.current())
+    }
+
+    @Test
+    fun reportsWhenTheSignInExpires() {
+        assertNull(session.expiresAt())
+        val start = now
+        session.remember(access("a"))
+        assertEquals(start.plus(Duration.ofHours(1)), session.expiresAt())
+        now = now.plus(Duration.ofHours(1))
+        assertNull(session.expiresAt())
+        session.remember(access("b"))
+        session.forget()
+        assertNull(session.expiresAt())
+    }
+
+    private class MemoryStore : SignInStore {
+        var text: String? = null
+        override fun load() = text
+        override fun save(text: String) { this.text = text }
+        override fun clear() { text = null }
+    }
+
+    @Test
+    fun usesSamsungsTokenLifetimeMinusAMargin() {
+        session.remember(SamsungAccess("t", "u", "e", expiresInSeconds = 86_400))
+        assertEquals(now.plus(Duration.ofDays(1)).minus(SamsungSession.MARGIN), session.expiresAt())
+        // A lifetime shorter than the margin still lasts a minute.
+        session.remember(SamsungAccess("t", "u", "e", expiresInSeconds = 60))
+        assertEquals(now.plus(Duration.ofMinutes(1)), session.expiresAt())
+    }
+
+    @Test
+    fun survivesAnAppRestart() {
+        val store = MemoryStore()
+        SamsungSession(Duration.ofHours(1), { now }, store).remember(SamsungAccess("tok", "user", "e@x.y", expiresInSeconds = 7200))
+        val restarted = SamsungSession(Duration.ofHours(1), { now }, store)
+        assertEquals("tok", restarted.current()?.accessToken)
+        assertEquals("user", restarted.current()?.userId)
+        assertEquals(now.plus(Duration.ofHours(2)).minus(SamsungSession.MARGIN), restarted.expiresAt())
+    }
+
+    @Test
+    fun expiredOrForgottenSignInIsRemovedFromTheStore() {
+        val store = MemoryStore()
+        val first = SamsungSession(Duration.ofHours(1), { now }, store)
+        first.remember(access("a"))
+        now = now.plus(Duration.ofHours(2))
+        assertNull(SamsungSession(Duration.ofHours(1), { now }, store).current())
+        assertNull(store.text)
+
+        first.remember(access("b"))
+        first.forget()
+        assertNull(store.text)
+    }
+
+    @Test
+    fun unreadableStoreIsCleared() {
+        val store = MemoryStore().apply { text = "not json" }
+        assertNull(SamsungSession(Duration.ofHours(1), { now }, store).current())
+        assertNull(store.text)
     }
 
     @Test

@@ -66,6 +66,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import java.time.Instant
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1016,6 +1017,7 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             Text(text, color = Palette.Text, fontSize = 14.sp)
         }
         CertificateExpiryNote(vm.certExpiresAt, forThisTv = vm.hasIdentityForTv)
+        vm.signInExpiresAt?.let { SignInKept(it, onForget = vm::forgetSignIn, onExpired = vm::refreshSignIn) }
         if (vm.hasIdentityForTv) {
             Text(
                 "Installs and updates use this certificate, so no sign-in is needed. Keep the backup: without it, the TV refuses updates.",
@@ -1045,6 +1047,43 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             SoftButton("Back up", null, enabled = enabled && vm.identityCount > 0, onClick = onBackup, modifier = Modifier.weight(1f))
         }
         BackupProtection(vm, enabled)
+    }
+}
+
+/**
+ * Shows that a Samsung sign-in is saved (for certificates for more TVs) and counts down to when
+ * it is dropped.
+ */
+@Composable
+private fun SignInKept(expiresAt: Instant, onForget: () -> Unit, onExpired: () -> Unit) {
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(expiresAt) {
+        while (now.isBefore(expiresAt)) {
+            kotlinx.coroutines.delay(15_000)
+            now = Instant.now()
+        }
+        onExpired()
+    }
+    val minutes = ((java.time.Duration.between(now, expiresAt).seconds + 59) / 60).coerceAtLeast(1)
+    val left = when {
+        minutes >= 48 * 60 -> "${minutes / (24 * 60)} days"
+        minutes >= 120 -> "${minutes / 60} h"
+        else -> "$minutes min"
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.SurfaceHigh).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Lock, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Samsung sign-in saved · expires in $left", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(
+                "Certificates for other TVs need no sign-in until then, even after closing the app. Saved encrypted on this phone only.",
+                color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp,
+            )
+        }
+        TextButton(onClick = onForget) { Text("Forget", color = Palette.Link) }
     }
 }
 
