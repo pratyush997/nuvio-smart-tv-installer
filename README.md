@@ -170,6 +170,8 @@ Changes in each version are listed in [CHANGELOG.md](CHANGELOG.md).
 ## Credits
 
 - [NuvioMedia](https://github.com/NuvioMedia) for Nuvio TV and the desktop [Nuvio TV Installer](https://github.com/NuvioMedia/NuvioTVSmart-Installer). The Samsung install flow in `core` (SDB commands, certificate requests, package signing) is a Kotlin port of that installer, which is published under the GPL-3.0.
+- [Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung) for the multi-TV certificate approach (one shared author key, one distributor certificate listing up to 10 TV DUIDs), which this app follows.
+- [iqui27](https://github.com/iqui27) for [Nuvio Legacy](https://github.com/iqui27/nuvio-native-legacy), the unofficial native rewrite this app can install. It is downloaded straight from their GitHub releases; this project doesn't build or change it.
 - The Nuvio name belongs to NuvioMedia and is used only to say which app this installs. This project is not affiliated with or endorsed by NuvioMedia. The app icon is original to this project.
 - Samsung and Tizen are trademarks of Samsung Electronics. LG and webOS are trademarks of LG Electronics.
 
