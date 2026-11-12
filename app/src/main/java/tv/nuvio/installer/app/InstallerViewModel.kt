@@ -96,6 +96,9 @@ data class Outcome(val kind: OutcomeKind, val title: String, val message: String
 /** The phone's address on the local network; [ip] is null when it has none. [gateway] is the router. */
 data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: String? = null)
 
+/** What to type in the phone's Wi-Fi "IP settings: Static" so it keeps [ip]. [gateway] is null when unknown. */
+data class StaticIpSettings(val ip: String, val prefixLength: Int, val gateway: String?)
+
 const val PREFS_NAME = "installer"
 const val PREF_INSTALLED_VERSION = "installedVersion"
 const val PREF_NOTIFIED_TAG = "notifiedTag"
@@ -281,6 +284,12 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private var pendingUpdateTv: String? = null
     private var phoneNetwork = phoneNetwork()
     var phoneIp by mutableStateOf(phoneNetwork.ip ?: "unknown")
+        private set
+    /** The router's settings page (http://<gateway>), when the phone's Wi-Fi reports a router. */
+    var routerPage by mutableStateOf(routerPage(phoneNetwork))
+        private set
+    /** The phone's current Wi-Fi address, router and prefix, to type as a static IP; null when not on Wi-Fi. */
+    var staticIp by mutableStateOf(staticIp(phoneNetwork))
         private set
     /** False while the phone has no Wi-Fi (or Ethernet) address: no TV can be found or reached then. */
     val onWifi: Boolean get() = phoneIp != "unknown"
@@ -576,7 +585,20 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     fun refreshPhoneIp() {
         phoneNetwork = phoneNetwork()
         phoneIp = phoneNetwork.ip ?: "unknown"
+        routerPage = routerPage(phoneNetwork)
+        staticIp = staticIp(phoneNetwork)
     }
+
+    private fun staticIp(network: PhoneNetwork): StaticIpSettings? = network.ip?.let { ip ->
+        StaticIpSettings(
+            ip = ip,
+            prefixLength = network.prefixLength.takeIf { it in 8..30 } ?: 24,
+            gateway = network.gateway?.takeIf { TvNetwork.isValidIpv4(it) },
+        )
+    }
+
+    private fun routerPage(network: PhoneNetwork): String? =
+        network.gateway?.takeIf { network.ip != null && TvNetwork.isValidIpv4(it) }?.let { "http://$it" }
 
     /**
      * Re-reads the phone's network (on Wi-Fi changes and when the app comes back to the screen).

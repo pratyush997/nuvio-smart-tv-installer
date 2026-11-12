@@ -3,6 +3,8 @@
 
 package tv.nuvio.installer.app
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import tv.nuvio.installer.core.NuvioApp
 import tv.nuvio.installer.core.TvBrand
 
@@ -246,7 +250,108 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
         }
         GuideStep(5, "Select OK.")
     }
-    Note("This number is your phone's address on the Wi-Fi. If it changes one day, the app tells you the new one to type.")
+    if (vm.phoneIp.startsWith("10.0.2.") || vm.phoneIp.startsWith("10.0.3.")) return
+    StaticIpTip(vm, copy)
+}
+
+/**
+ * The TV only accepts the IP address typed in Host IP, and routers can give the phone a new one.
+ * Setting it as a static IP in the phone's Wi-Fi settings keeps it, so Host IP never has to be
+ * typed again. Short here; the steps, filled in with this phone's values, are in a popup.
+ */
+@Composable
+private fun StaticIpTip(vm: InstallerViewModel, copy: (String) -> Unit) {
+    val settings = vm.staticIp ?: return
+    var open by rememberSaveable { mutableStateOf(false) }
+    Panel {
+        SectionTitle("Stop this IP address from changing")
+        Text(
+            "Your router can give this phone a new IP address some day. Then you'd have to type the new one on the TV again. " +
+                "A quick change in this phone's Wi-Fi settings stops that.",
+            color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
+        )
+        SubtleLink("Show me how") { open = true }
+    }
+    if (open) StaticIpDialog(settings, vm.routerPage, copy, onDismiss = { open = false })
+}
+
+/** Primary DNS servers suggested for the static IP: Cloudflare, then Google. */
+private const val DNS_1 = "1.1.1.1"
+private const val DNS_2 = "8.8.8.8"
+
+/**
+ * The steps for a static IP, in the app's own style: title and buttons stay put, the steps
+ * scroll between them, and the values sit in one compact table, each row tap to copy.
+ */
+@Composable
+private fun StaticIpDialog(settings: StaticIpSettings, routerPage: String?, copy: (String) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uri = LocalUriHandler.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 24.dp).widthIn(max = 480.dp).fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp)).background(Palette.Background),
+        ) {
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Set a static IP", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                Text("So this phone always keeps ${settings.ip}.", color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp)
+            }
+            HorizontalDivider(color = Palette.Outline)
+            Column(
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                GuideStep(1, "Open Wi-Fi settings and tap the gear next to the Wi-Fi you're on.")
+                GuideStep(2, "Tap the pencil at the top. On Samsung, tap View more at the bottom.")
+                GuideStep(3, "Change IP settings from DHCP to Static.")
+                GuideStep(4, "Fill in these. Tap a row to copy it.")
+                Column(
+                    Modifier.padding(start = 36.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        .background(Palette.Surface).border(1.dp, Palette.Outline, RoundedCornerShape(14.dp)),
+                ) {
+                    SettingRow("IP address", settings.ip, copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("Gateway", settings.gateway, copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("Prefix length", settings.prefixLength.toString(), copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("DNS 1", DNS_1, copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("DNS 2", DNS_2, copy)
+                }
+                GuideStep(5, "Tap Save.")
+                Note("If the Wi-Fi stops working, set IP settings back to DHCP.")
+                if (routerPage != null) SubtleLink("Or reserve it on your router's page instead") { runCatching { uri.openUri(routerPage) } }
+            }
+            HorizontalDivider(color = Palette.Outline)
+            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SoftButton("Close", null, enabled = true, onClick = onDismiss, modifier = Modifier.width(96.dp).height(56.dp))
+                GradientButton(
+                    "Open Wi-Fi settings", enabled = true,
+                    onClick = { runCatching { context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** One row of the table: what the phone's setting is called, and the value to type. [value] null: keep what's there. */
+@Composable
+private fun SettingRow(label: String, value: String?, copy: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = value != null) { value?.let(copy) }.padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        if (value != null) {
+            Text(value, color = Palette.Link, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.width(10.dp))
+            Text("Copy", color = Palette.Muted, fontSize = 12.sp)
+        } else {
+            Text("Leave as is", color = Palette.Muted, fontSize = 13.sp)
+        }
+    }
 }
 
 @Composable
