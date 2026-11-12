@@ -149,7 +149,7 @@ class TizenInstaller(
         events.info(if (tv != null) "Nuvio TV ${tv["app_version"].orEmpty()} is installed." else "Nuvio TV is not installed.")
         if (apps.containsKey(NuvioApp.LEGACY)) events.info("Nuvio Legacy is installed.")
         val known = identities.candidatesFor(duid).isNotEmpty()
-        events.info(if (known) "A signing certificate for this TV is saved on this device." else "No signing certificate for this TV is saved on this device yet.")
+        events.info(if (known) "A certificate for this TV is saved on this phone." else "No certificate for this TV is saved on this phone yet.")
         TvInfo(duid, version, apps)
     }
 
@@ -252,7 +252,7 @@ class TizenInstaller(
         preflight.notes.forEach(events::info)
         preflight.blocked?.let { throw it }
         if (preflight.usable.isNotEmpty()) {
-            events.success("A certificate for this TV is already saved on this device.")
+            events.success("A certificate for this TV is already saved on this phone.")
             return false
         }
         createIdentity(duid)
@@ -297,7 +297,7 @@ class TizenInstaller(
                 events.waitingForLogin(false)
             }
         }
-        events.success("Samsung login received.")
+        events.success("Samsung sign-in received.")
         return access
     }
 
@@ -395,7 +395,7 @@ class TizenInstaller(
             if (output.isNotBlank()) events.info("The TV did not remove the app with id $id.")
         }
         throw InstallerException(
-            "The TV did not allow removing ${nuvio.label} over the network. Remove it from the TV instead: Apps > Settings (gear) > ${nuvio.label} > Delete."
+            "The TV did not allow removing ${nuvio.label} over the network. Remove it from the TV instead: Apps › Settings (gear) › ${nuvio.label} › Delete."
         )
     }
 }

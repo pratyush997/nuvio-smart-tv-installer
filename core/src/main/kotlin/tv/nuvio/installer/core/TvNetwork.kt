@@ -157,7 +157,7 @@ object TvNetwork {
         val powerCycle = "Unplug the TV from power, wait 5 seconds, then plug it back in."
         val refresh = "Tap refresh here."
         val findTvIp = "On the TV, open Settings › General (or Connection) › Network › Network Status › IP Settings."
-        // The TV only accepts the Host PC IP typed on it, so a phone that gets a new IP from the
+        // The TV only accepts the Host IP typed on it, so a phone that gets a new IP from the
         // router breaks the connection again. A reserved address stops that.
         val router = gatewayIp?.takeIf { isValidIpv4(it) }
         val reserveTip = phoneIp?.takeIf { !emulator }?.let { ip ->
@@ -166,13 +166,13 @@ object TvNetwork {
         }
         val reserveLink = router?.takeIf { reserveTip != null }?.let { "http://$it" }
         fun setHostIp(from: String?) = buildString {
-            append(if (from != null) "Change Host PC IP from $from to $hostIp." else "Set Host PC IP to $hostIp.")
+            append(if (from != null) "Change Host IP from $from to $hostIp." else "Set Host IP to $hostIp.")
             if (emulator) append(" $findPcIp")
         }
 
         when {
             phoneIp == null -> add(
-                CheckState.FAIL, "Phone has no Wi-Fi address",
+                CheckState.FAIL, "Phone has no Wi-Fi IP",
                 Fix(null, listOf("Connect this phone to the same Wi-Fi as the TV.", refresh)),
             )
             emulator -> add(CheckState.OK, "Emulator IP $phoneIp (the TV sees your computer's IP instead)")
@@ -181,7 +181,7 @@ object TvNetwork {
 
         val tv = tvIp.trim()
         if (!isValidIpv4(tv)) {
-            add(CheckState.FAIL, "TV IP is not a valid address", Fix(null, listOf(findTvIp, "Type that IP here: four numbers, like 192.168.1.20.")))
+            add(CheckState.FAIL, "TV IP is not valid", Fix(null, listOf(findTvIp, "Type the TV's IP here, like 192.168.1.20.")))
             return IpReport(rows, fix)
         }
         if (tv == phoneIp) {
@@ -193,7 +193,7 @@ object TvNetwork {
             val name = status?.name.orEmpty()
             add(CheckState.OK, if (name.isNotEmpty()) "TV found at $tv: $name" else "TV found at $tv")
             add(CheckState.OK, "Developer Mode is on")
-            add(CheckState.OK, if (emulator) "Host PC IP matches this computer" else "Host PC IP matches this phone")
+            add(CheckState.OK, if (emulator) "Host IP matches this computer" else "Host IP matches this phone")
             add(CheckState.OK, "Installer connection works")
             return IpReport(rows, null)
         }
@@ -228,11 +228,11 @@ object TvNetwork {
 
         when {
             status.developerMode == false -> Unit
-            developerIp == null -> add(CheckState.UNKNOWN, "Host PC IP: the TV did not say")
-            emulator -> add(CheckState.UNKNOWN, "Host PC IP on the TV is $developerIp. It must be your computer's Wi-Fi IP")
-            developerIp == phoneIp -> add(CheckState.OK, "Host PC IP matches this phone")
+            developerIp == null -> add(CheckState.UNKNOWN, "Host IP: the TV did not say")
+            emulator -> add(CheckState.UNKNOWN, "Host IP on the TV is $developerIp. It must be your computer's Wi-Fi IP")
+            developerIp == phoneIp -> add(CheckState.OK, "Host IP matches this phone")
             else -> add(
-                CheckState.FAIL, "Host PC IP on the TV is $developerIp, but this phone is $hostIp",
+                CheckState.FAIL, "Host IP on the TV is $developerIp, but this phone is $hostIp",
                 Fix(null, listOf(openDevMode, setHostIp(developerIp), powerCycle, refresh), reserveTip, reserveLink),
             )
         }
@@ -254,7 +254,7 @@ object TvNetwork {
                 )
                 else -> Fix(
                     connectError?.takeIf { it.isNotBlank() },
-                    listOf(openDevMode, "Check that Developer Mode is on and Host PC IP is $hostIp.", powerCycle, refresh),
+                    listOf(openDevMode, "Check that Developer Mode is on and Host IP is $hostIp.", powerCycle, refresh),
                 )
             },
         )

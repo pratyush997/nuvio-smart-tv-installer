@@ -125,7 +125,7 @@ class SamsungSessionTest {
     @Test
     fun cancelledSignInIsNotRemembered() {
         assertFailsWith<InstallerException> {
-            session.withAccess<Unit>(events, signIn = { throw InstallerException("Samsung login was cancelled.") }) { }
+            session.withAccess<Unit>(events, signIn = { throw InstallerException("Samsung sign-in was cancelled.") }) { }
         }
         assertNull(session.current())
     }

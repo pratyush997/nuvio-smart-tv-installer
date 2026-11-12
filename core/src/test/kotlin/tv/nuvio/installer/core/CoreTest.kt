@@ -78,46 +78,46 @@ class CoreTest {
 
     @Test
     fun tvStatusAndIpReport() {
-        assertTrue(TvNetwork.isValidIpv4("192.168.1.9"))
-        assertTrue(!TvNetwork.isValidIpv4("192.168.1.256") && !TvNetwork.isValidIpv4("192.168.1") && !TvNetwork.isValidIpv4("tv.local"))
-        assertTrue(TvNetwork.sameSubnet("192.168.1.9", "192.168.1.200"))
-        assertTrue(!TvNetwork.sameSubnet("192.168.1.9", "192.168.2.9"))
-        assertTrue(TvNetwork.sameSubnet("192.168.1.9", "192.168.2.9", 16))
+        assertTrue(TvNetwork.isValidIpv4("192.168.50.9"))
+        assertTrue(!TvNetwork.isValidIpv4("192.168.50.256") && !TvNetwork.isValidIpv4("192.168.50") && !TvNetwork.isValidIpv4("tv.local"))
+        assertTrue(TvNetwork.sameSubnet("192.168.50.9", "192.168.50.200"))
+        assertTrue(!TvNetwork.sameSubnet("192.168.50.9", "192.168.51.9"))
+        assertTrue(TvNetwork.sameSubnet("192.168.50.9", "192.168.51.9", 16))
 
         val response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" +
-            """{"device":{"developerIP":"192.168.1.11","developerMode":"1","modelName":"QA55Q60","name":"Living Room"},"name":"Living Room"}"""
+            """{"device":{"developerIP":"192.168.50.11","developerMode":"1","modelName":"QA55Q60","name":"Living Room"},"name":"Living Room"}"""
         val status = TvNetwork.parseStatus(response)
-        assertEquals(SamsungTvStatus("Living Room", "QA55Q60", true, "192.168.1.11"), status)
+        assertEquals(SamsungTvStatus("Living Room", "QA55Q60", true, "192.168.50.11"), status)
         assertNull(TvNetwork.parseStatus("HTTP/1.1 200 OK\r\n\r\n{\"device\":{\"na"))
         assertNull(TvNetwork.parseStatus("""{"device":{"developerIP":"0.0.0.0","developerMode":"0"}}""")?.developerIp)
 
         fun fix(phone: String?, tv: String, s: SamsungTvStatus?, connected: Boolean = false, lastGood: String? = null) =
             TvNetwork.report(phone, 24, tv, s, connected, "boom", lastGood)
-        assertNull(fix("192.168.1.11", "192.168.1.9", status, connected = true).fix)
-        assertTrue(fix("192.168.1.14", "192.168.1.9", status).fix!!.text.contains("Change Host PC IP from 192.168.1.11 to 192.168.1.14."))
-        assertTrue(fix("192.168.1.11", "192.168.1.9", status).fix!!.reason!!.contains("has not applied them"))
-        assertTrue(fix("192.168.1.11", "192.168.1.9", status!!.copy(developerMode = false)).fix!!.steps.contains("Switch Developer Mode on."))
-        assertTrue(fix("192.168.1.11", "192.168.2.9", null).rows.last().text.contains("different network"))
-        assertTrue(fix("192.168.1.11", "192.168.1.9", null).rows.last().text.contains("No Samsung TV answered"))
-        assertTrue(fix("192.168.1.11", "192.168.1.11", null).rows.last().text.contains("this phone's IP"))
-        assertTrue(fix("192.168.1.11", "abc", null).rows.last().text.contains("not a valid address"))
-        assertTrue(fix(null, "192.168.1.9", null).fix!!.text.contains("same Wi-Fi"))
+        assertNull(fix("192.168.50.11", "192.168.50.9", status, connected = true).fix)
+        assertTrue(fix("192.168.50.14", "192.168.50.9", status).fix!!.text.contains("Change Host IP from 192.168.50.11 to 192.168.50.14."))
+        assertTrue(fix("192.168.50.11", "192.168.50.9", status).fix!!.reason!!.contains("has not applied them"))
+        assertTrue(fix("192.168.50.11", "192.168.50.9", status!!.copy(developerMode = false)).fix!!.steps.contains("Switch Developer Mode on."))
+        assertTrue(fix("192.168.50.11", "192.168.51.9", null).rows.last().text.contains("different network"))
+        assertTrue(fix("192.168.50.11", "192.168.50.9", null).rows.last().text.contains("No Samsung TV answered"))
+        assertTrue(fix("192.168.50.11", "192.168.50.11", null).rows.last().text.contains("this phone's IP"))
+        assertTrue(fix("192.168.50.11", "abc", null).rows.last().text.contains("TV IP is not valid"))
+        assertTrue(fix(null, "192.168.50.9", null).fix!!.text.contains("same Wi-Fi"))
         val unknown = SamsungTvStatus("TV", "", null, null)
-        assertTrue(fix("192.168.1.14", "192.168.1.9", unknown, lastGood = "192.168.1.11").fix!!.reason!!.contains("changed from 192.168.1.11 to 192.168.1.14"))
-        assertTrue(fix("192.168.1.14", "192.168.1.9", unknown).fix!!.reason == "boom")
+        assertTrue(fix("192.168.50.14", "192.168.50.9", unknown, lastGood = "192.168.50.11").fix!!.reason!!.contains("changed from 192.168.50.11 to 192.168.50.14"))
+        assertTrue(fix("192.168.50.14", "192.168.50.9", unknown).fix!!.reason == "boom")
 
         // Real response shape from a 2023 Crystal UHD: the name is HTML-escaped.
-        val crystal = TvNetwork.parseStatus("""{"device":{"name":"65&quot; Crystal UHD","modelName":"UA65CUE70AKLXL","developerMode":"1","developerIP":"192.168.1.8"}}""")
-        assertEquals("65\" Crystal UHD", crystal?.name)
+        val crystal = TvNetwork.parseStatus("""{"device":{"name":"55&quot; Crystal UHD","modelName":"UA55TEST100","developerMode":"1","developerIP":"192.168.50.8"}}""")
+        assertEquals("55\" Crystal UHD", crystal?.name)
         assertEquals("Tom & Jerry's TV", TvNetwork.decodeEntities("Tom &amp; Jerry&#39;s TV"))
 
         // Emulators: never tell the user to type the emulator's 10.0.2.x address on the TV.
         assertTrue(TvNetwork.isEmulatorAddress("10.0.2.15") && !TvNetwork.isEmulatorAddress("10.0.20.15"))
-        val emu = fix("10.0.2.15", "192.168.1.9", crystal)
-        assertTrue(emu.fix!!.steps.contains("Change Host PC IP from 192.168.1.8 to your computer's Wi-Fi IP. Run ipconfig on the PC to find it."))
+        val emu = fix("10.0.2.15", "192.168.50.9", crystal)
+        assertTrue(emu.fix!!.steps.contains("Change Host IP from 192.168.50.8 to your computer's Wi-Fi IP. Run ipconfig on the PC to find it."))
         assertEquals("1. On the TV, open Apps and press 1 2 3 4 5 on the remote.", emu.fix!!.text.lines()[1])
-        assertTrue(emu.rows.none { it.state == CheckState.FAIL && it.text.contains("Host PC IP") })
-        assertTrue(!fix("10.0.2.15", "192.168.1.9", null).rows.last().text.contains("different network"))
+        assertTrue(emu.rows.none { it.state == CheckState.FAIL && it.text.contains("Host IP") })
+        assertTrue(!fix("10.0.2.15", "192.168.50.9", null).rows.last().text.contains("different network"))
     }
 
     @Test

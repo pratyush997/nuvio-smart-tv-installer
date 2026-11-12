@@ -49,7 +49,7 @@ class SamsungLoginServer(
         try {
             v4.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
         } catch (e: Exception) {
-            throw InstallerException("Unable to open the local Samsung login receiver on port $port: ${e.message}", e)
+            throw InstallerException("Could not start the Samsung sign-in on this phone (port $port): ${e.message}", e)
         }
         sockets += v4
         runCatching {
@@ -66,9 +66,9 @@ class SamsungLoginServer(
     /** Blocks until the Samsung login completes, or throws on timeout / cancellation. */
     fun await(timeoutMs: Long = 5 * 60_000): SamsungAccess {
         if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw InstallerException("Samsung login timed out. Start the installation again and finish the login within 5 minutes.")
+            throw InstallerException("Samsung sign-in timed out. Start the install again and finish signing in within 5 minutes.")
         }
-        return result.get() ?: throw InstallerException("Samsung login was cancelled.")
+        return result.get() ?: throw InstallerException("Samsung sign-in was cancelled.")
     }
 
     override fun close() {
@@ -181,9 +181,9 @@ class SamsungLoginServer(
     }
 
     private fun page(authorized: Boolean): String {
-        val title = if (authorized) "Samsung authorization complete" else "Samsung authorization in progress"
-        val text = if (authorized) "Return to the TV Installer app. Installation continues automatically."
-        else "Complete the Samsung login. The Nuvio installer receives the authorization automatically."
+        val title = if (authorized) "Samsung sign-in done" else "Samsung sign-in in progress"
+        val text = if (authorized) "Go back to TV Installer. The install continues by itself."
+        else "Finish signing in to Samsung. TV Installer picks it up by itself."
         val button = if (authorized && returnUrl != null) {
             "<p><a href=\"$returnUrl\" style=\"display:inline-block;padding:14px 22px;border-radius:12px;background:#34d399;color:#000;text-decoration:none;font-weight:600\">Return to TV Installer</a></p>"
         } else ""

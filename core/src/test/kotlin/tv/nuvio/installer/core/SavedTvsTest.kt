@@ -10,8 +10,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SavedTvsTest {
-    private val living = SavedTv("192.168.1.9", "Living Room", "QA55", id = "uuid-1", duid = "DUID1", installedVersion = "1.3.10")
-    private val bedroom = SavedTv("192.168.1.20", "Bedroom", "UA43", id = "uuid-2", duid = "DUID2")
+    private val living = SavedTv("192.168.50.9", "Living Room", "QA55", id = "uuid-1", duid = "DUID1", installedVersion = "1.3.10")
+    private val bedroom = SavedTv("192.168.50.20", "Bedroom", "UA43", id = "uuid-2", duid = "DUID2")
 
     @Test
     fun roundTripsThroughJson() {
@@ -21,7 +21,7 @@ class SavedTvsTest {
 
     @Test
     fun tvsSavedBeforeBrandsAreSamsungAndLgRoundTrips() {
-        val old = SavedTvs.decode("""[{"ip":"192.168.1.9","name":"Living Room"}]""")
+        val old = SavedTvs.decode("""[{"ip":"192.168.50.9","name":"Living Room"}]""")
         assertEquals(TvBrand.SAMSUNG, old.single().brand)
         val lg = listOf(bedroom.copy(brand = TvBrand.LG))
         assertEquals(lg, SavedTvs.decode(SavedTvs.encode(lg)))
@@ -35,7 +35,7 @@ class SavedTvsTest {
 
     @Test
     fun aTvThatMovedReplacesItsEntryInPlace() {
-        val moved = living.copy(ip = "192.168.1.30", installedVersion = "1.3.11")
+        val moved = living.copy(ip = "192.168.50.30", installedVersion = "1.3.11")
         val result = SavedTvs.upsert(listOf(living, bedroom), moved)
         assertEquals(listOf(moved, bedroom), result)
     }
@@ -43,7 +43,7 @@ class SavedTvsTest {
     @Test
     fun unknownFieldsAreKeptAndVersionIsReplaced() {
         // The info page answered but the installer connection did not: no DUID, no version.
-        val partial = SavedTv("192.168.1.9", "Living Room", "QA55", id = "uuid-1")
+        val partial = SavedTv("192.168.50.9", "Living Room", "QA55", id = "uuid-1")
         val result = SavedTvs.upsert(listOf(living), partial).single()
         assertEquals("DUID1", result.duid)
         assertNull(result.installedVersion)
@@ -67,7 +67,7 @@ class SavedTvsTest {
 
     @Test
     fun aDifferentTvAtTheSameAddressTakesItOver() {
-        val newcomer = SavedTv("192.168.1.9", "Kitchen", "UA32", id = "uuid-3")
+        val newcomer = SavedTv("192.168.50.9", "Kitchen", "UA32", id = "uuid-3")
         assertEquals(listOf(bedroom, newcomer), SavedTvs.upsert(listOf(living, bedroom), newcomer))
     }
 
@@ -82,7 +82,7 @@ class SavedTvsTest {
 
     @Test
     fun keyIsStableAcrossAddressChanges() {
-        assertEquals(living.key, living.copy(ip = "192.168.1.99").key)
+        assertEquals(living.key, living.copy(ip = "192.168.50.99").key)
         assertEquals("ip:10.0.0.5", SavedTv("10.0.0.5").key)
     }
 

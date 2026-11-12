@@ -147,7 +147,7 @@ class IdentityStore(val directory: File) {
         val identity = try {
             SigningIdentity.parse(text)
         } catch (e: Exception) {
-            throw InstallerException("This file is not a Nuvio installer certificate file (${e.message}).", e)
+            throw InstallerException("This is not a Nuvio certificate file (${e.message}).", e)
         }
         if (!identity.isUsable) throw InstallerException("This certificate file does not contain a usable Samsung signing identity.")
         if (identity.duid.isBlank()) throw InstallerException("This certificate file does not say which TV (DUID) it belongs to.")

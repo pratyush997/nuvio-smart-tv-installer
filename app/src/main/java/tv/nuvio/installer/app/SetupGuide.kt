@@ -3,6 +3,8 @@
 
 package tv.nuvio.installer.app
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
@@ -49,10 +52,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import tv.nuvio.installer.core.NuvioApp
 import tv.nuvio.installer.core.TvBrand
 
 private const val GUIDE_STEPS = 6
+
+/** Steps that can't be done without Wi-Fi: what you need, Developer Mode (the phone's address), find your TV. */
+private val WIFI_STEPS = setOf(1, 2, 4)
 
 /**
  * First-time setup, one step per screen: which TV, what you need, Developer Mode, restart,
@@ -66,11 +74,12 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
     val busy = vm.busy != null
     val connected = vm.tvState == TvState.ONLINE
     val focus = LocalFocusManager.current
+    val context = LocalContext.current
     val scroll = rememberScrollState()
     LaunchedEffect(step) {
         scroll.scrollTo(0)
-        // The "find your TV" step looks for TVs as soon as it opens.
-        if (step == 4 && vm.tvIp.isBlank() && vm.foundTvs == null) vm.scanForTvs()
+        // The "find your TV" step looks for TVs as soon as it opens. Without Wi-Fi, joining it starts the search.
+        if (step == 4 && vm.onWifi && vm.tvIp.isBlank() && vm.foundTvs == null) vm.scanForTvs()
     }
     BackHandler { if (step > 0) step-- else vm.closeGuide() }
 
@@ -112,7 +121,9 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
                     SoftButton("Back", null, enabled = !busy, onClick = { step-- }, modifier = Modifier.width(96.dp).height(56.dp))
                 }
                 val next: () -> Unit = { step++ }
-                when (step) {
+                if (!vm.onWifi && step in WIFI_STEPS) {
+                    GradientButton("Open Wi-Fi settings", enabled = true, onClick = { openWifiSettings(context) }, modifier = Modifier.weight(1f))
+                } else when (step) {
                     0 -> GradientButton(
                         if (brand == TvBrand.LG) "LG is coming soon" else "Next",
                         enabled = brand == TvBrand.SAMSUNG, onClick = next, modifier = Modifier.weight(1f),
@@ -194,16 +205,16 @@ private fun NeedsStep(vm: InstallerViewModel) {
         Bullet("This phone and the TV on the same Wi-Fi")
         Bullet("A Samsung account. It's free, and you sign in only once.")
     }
+    if (!vm.onWifi) {
+        NoWifiNotice(button = false)
+        return
+    }
     Panel {
         SectionTitle("This phone")
-        val onNetwork = vm.phoneIp != "unknown"
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(if (onNetwork) Palette.Success else Palette.Error)
+            StatusDot(Palette.Success)
             Spacer(Modifier.width(10.dp))
-            Text(
-                if (onNetwork) "On Wi-Fi" else "Not on Wi-Fi. Connect to the same Wi-Fi as the TV first.",
-                color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp,
-            )
+            Text("On Wi-Fi", color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
 }
@@ -211,11 +222,16 @@ private fun NeedsStep(vm: InstallerViewModel) {
 @Composable
 private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
     GuideTitle("Turn on Developer Mode", "On the TV, with the TV remote. This lets the TV accept Nuvio from your phone.")
+    // The IP address to type on the TV is the phone's Wi-Fi address.
+    if (!vm.onWifi) {
+        NoWifiNotice(button = false)
+        return
+    }
     Panel {
         GuideStep(1, "Press Home and open Apps.")
         GuideStep(2, "Press 1 2 3 4 5 on the remote. No number keys? Press the 123 button and pick the numbers on screen.")
         GuideStep(3, "Switch Developer Mode to On.")
-        GuideStep(4, "In Host PC IP, type this number:")
+        GuideStep(4, "In Host IP, type this IP address:")
         Row(
             Modifier
                 .padding(start = 36.dp)
@@ -230,14 +246,112 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
             Text("Copy", color = Palette.Muted, fontSize = 12.sp)
         }
         if (vm.phoneIp.startsWith("10.0.2.") || vm.phoneIp.startsWith("10.0.3.")) {
-            Note("This looks like an emulator address. Enter your computer's Wi-Fi IP on the TV instead (run ipconfig on the PC).", warning = true)
-        }
-        if (vm.phoneIp == "unknown") {
-            Note("This phone is not on Wi-Fi. Connect it to the same Wi-Fi as the TV, then come back to this step.", warning = true)
+            Note("This looks like an emulator IP. Enter your computer's Wi-Fi IP on the TV instead (run ipconfig on the PC).", warning = true)
         }
         GuideStep(5, "Select OK.")
     }
-    Note("This number is your phone's address on the Wi-Fi. If it changes one day, the app tells you the new one to type.")
+    if (vm.phoneIp.startsWith("10.0.2.") || vm.phoneIp.startsWith("10.0.3.")) return
+    StaticIpTip(vm, copy)
+}
+
+/**
+ * The TV only accepts the IP address typed in Host IP, and routers can give the phone a new one.
+ * Setting it as a static IP in the phone's Wi-Fi settings keeps it, so Host IP never has to be
+ * typed again. Short here; the steps, filled in with this phone's values, are in a popup.
+ */
+@Composable
+private fun StaticIpTip(vm: InstallerViewModel, copy: (String) -> Unit) {
+    val settings = vm.staticIp ?: return
+    var open by rememberSaveable { mutableStateOf(false) }
+    Panel {
+        SectionTitle("Stop this IP address from changing")
+        Text(
+            "Your router can give this phone a new IP address some day. Then you'd have to type the new one on the TV again. " +
+                "A quick change in this phone's Wi-Fi settings stops that.",
+            color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
+        )
+        SubtleLink("Show me how") { open = true }
+    }
+    if (open) StaticIpDialog(settings, vm.routerPage, copy, onDismiss = { open = false })
+}
+
+/** Primary DNS servers suggested for the static IP: Cloudflare, then Google. */
+private const val DNS_1 = "1.1.1.1"
+private const val DNS_2 = "8.8.8.8"
+
+/**
+ * The steps for a static IP, in the app's own style: title and buttons stay put, the steps
+ * scroll between them, and the values sit in one compact table, each row tap to copy.
+ */
+@Composable
+private fun StaticIpDialog(settings: StaticIpSettings, routerPage: String?, copy: (String) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uri = LocalUriHandler.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 24.dp).widthIn(max = 480.dp).fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp)).background(Palette.Background),
+        ) {
+            Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Set a static IP", color = Palette.Text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                Text("So this phone always keeps ${settings.ip}.", color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp)
+            }
+            HorizontalDivider(color = Palette.Outline)
+            Column(
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                GuideStep(1, "Open Wi-Fi settings and tap the gear next to the Wi-Fi you're on.")
+                GuideStep(2, "Tap the pencil at the top. On Samsung, tap View more at the bottom.")
+                GuideStep(3, "Change IP settings from DHCP to Static.")
+                GuideStep(4, "Fill in these. Tap a row to copy it.")
+                Column(
+                    Modifier.padding(start = 36.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                        .background(Palette.Surface).border(1.dp, Palette.Outline, RoundedCornerShape(14.dp)),
+                ) {
+                    SettingRow("IP address", settings.ip, copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("Gateway", settings.gateway, copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("Prefix length", settings.prefixLength.toString(), copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("DNS 1", DNS_1, copy)
+                    HorizontalDivider(color = Palette.Outline)
+                    SettingRow("DNS 2", DNS_2, copy)
+                }
+                GuideStep(5, "Tap Save.")
+                Note("If the Wi-Fi stops working, set IP settings back to DHCP.")
+                if (routerPage != null) SubtleLink("Or reserve it on your router's page instead") { runCatching { uri.openUri(routerPage) } }
+            }
+            HorizontalDivider(color = Palette.Outline)
+            Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SoftButton("Close", null, enabled = true, onClick = onDismiss, modifier = Modifier.width(96.dp).height(56.dp))
+                GradientButton(
+                    "Open Wi-Fi settings", enabled = true,
+                    onClick = { runCatching { context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) } },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** One row of the table: what the phone's setting is called, and the value to type. [value] null: keep what's there. */
+@Composable
+private fun SettingRow(label: String, value: String?, copy: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = value != null) { value?.let(copy) }.padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Palette.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        if (value != null) {
+            Text(value, color = Palette.Link, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.width(10.dp))
+            Text("Copy", color = Palette.Muted, fontSize = 12.sp)
+        } else {
+            Text("Leave as is", color = Palette.Muted, fontSize = 13.sp)
+        }
+    }
 }
 
 @Composable
@@ -256,6 +370,10 @@ private fun TvAddressStep(vm: InstallerViewModel) {
     var typeAddress by rememberSaveable { mutableStateOf(false) }
     val nothingFound = vm.foundTvs?.isEmpty() == true
     GuideTitle("Find your TV", "Make sure the TV is on, then tap it in the list.")
+    if (!vm.onWifi) {
+        NoWifiNotice(button = false)
+        return
+    }
     Panel {
         TvFinder(vm, showButton = false)
         when (vm.tvState) {
@@ -283,9 +401,9 @@ private fun TvAddressStep(vm: InstallerViewModel) {
             TvIpField(vm, enabled = vm.busy == null)
         }
     } else {
-        SubtleLink("TV not in the list? Type its address") { typeAddress = true }
+        SubtleLink("TV not in the list? Type its IP") { typeAddress = true }
     }
-    Note("If the router gives your TV a new address one day, the app finds it again by itself.")
+    Note("If the router gives your TV a new IP one day, the app finds it again by itself.")
 }
 
 @Composable
@@ -320,9 +438,9 @@ private fun SamsungAccountStep(vm: InstallerViewModel, onImport: () -> Unit) {
         SubtleLink("Other ways to set up this TV") { otherWays = true }
     } else {
         Panel {
-            SectionTitle("Installed Nuvio from a computer before?")
+            SectionTitle("Used the desktop Nuvio installer before?")
             Text(
-                "Import the file the computer installer saved (samsung-tv-certificate-….json). Otherwise the TV refuses updates.",
+                "Import the file it saved (samsung-tv-certificate-….json). Otherwise the TV refuses updates.",
                 color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
             )
             SoftButton("Import file", null, enabled = vm.busy == null, onClick = onImport)

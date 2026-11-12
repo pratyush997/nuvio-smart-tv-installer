@@ -18,7 +18,7 @@ enum class ReadyCheck {
         WIFI -> "Phone on Wi-Fi"
         TV -> "TV found"
         DEVELOPER_MODE -> "Developer Mode on"
-        HOST_IP -> "Host PC IP is this phone"
+        HOST_IP -> "Host IP is this phone"
         CONNECTION -> "TV accepts this phone"
         PACKAGE -> "${app.label} file for this TV"
         SIGN_IN -> "Samsung sign-in"
@@ -40,7 +40,7 @@ object InstallReadiness {
         else ReadyResult(ReadyCheck.WIFI, ReadyState.PASS, phoneIp)
 
     /**
-     * The TV rows (found, Developer Mode, Host PC IP, connection) from one TV check, stopping at
+     * The TV rows (found, Developer Mode, Host IP, connection) from one TV check, stopping at
      * the first failure. [status] is what the TV's info port said (null: nothing answered),
      * [connected] whether the installer connection worked.
      */
@@ -102,6 +102,9 @@ object InstallReadiness {
 
 /** The one highlighted button on the main screen. */
 sealed interface MainAction {
+    /** The phone is not on Wi-Fi, so no TV can be found or reached. */
+    data object ConnectWifi : MainAction
+
     /** No TV picked yet. */
     data object FindTv : MainAction
 
@@ -117,11 +120,18 @@ sealed interface MainAction {
 
     companion object {
         /**
-         * Picks the highlighted button: Find my TV, Check again, Update Nuvio TV, Open an installed
+         * Picks the highlighted button: Connect to Wi-Fi, Find my TV, Check again, Update Nuvio TV, Open an installed
          * app (Nuvio TV first), and Install Nuvio TV only when neither app is on the TV.
          * [failedChecks]: the app whose install checks failed last, if any.
          */
-        fun pick(hasTv: Boolean, online: Boolean, apps: Map<NuvioApp, AppState>, failedChecks: NuvioApp? = null): MainAction {
+        fun pick(
+            hasTv: Boolean,
+            online: Boolean,
+            apps: Map<NuvioApp, AppState>,
+            failedChecks: NuvioApp? = null,
+            onWifi: Boolean = true,
+        ): MainAction {
+            if (!onWifi) return ConnectWifi
             if (!hasTv) return FindTv
             if (failedChecks != null) return CheckAgain(failedChecks)
             if (!online) return CheckAgain(null)

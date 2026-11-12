@@ -76,7 +76,7 @@ class ReleaseChannelTest {
     }
 
     private fun tv(version: String?, tag: String? = null, beta: Boolean = false) =
-        SavedTv("192.168.1.9", installedVersion = version, installedTag = tag, installedBeta = beta)
+        SavedTv("192.168.50.9", installedVersion = version, installedTag = tag, installedBeta = beta)
 
     @Test
     fun aTvOnAFullReleaseIsOnlyOfferedFullReleases() {
