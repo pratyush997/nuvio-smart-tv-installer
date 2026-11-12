@@ -2,6 +2,11 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The app now says "Host IP" instead of "Host PC IP", since the IP to type there is this phone's. Where the app meant an IP address, it now says "IP" instead of "number" or "address". It says "phone" instead of "device", "Samsung sign-in" everywhere instead of a mix of "login" and "sign-in", and "the desktop Nuvio installer" instead of "the computer installer".
+
 ## [1.4.0] - 2026-11-11
 
 ### Added

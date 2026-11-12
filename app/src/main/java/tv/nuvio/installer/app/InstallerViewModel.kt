@@ -758,7 +758,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 foundTvs = found
                 val moved = TvDiscovery.findRemembered(remembered, found)
                 if (moved != null && moved.ip != ip) {
-                    log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new address."))
+                    log.add(LogLine(LogLevel.INFO, "Your TV is now at ${moved.ip} (it was at $ip). Using the new IP."))
                     target = moved.ip
                     tvIp = target
                     tvMovedFrom = ip

@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** The "reserve this phone's IP" tip shown when the phone's IP no longer matches Host PC IP. */
+/** The "reserve this phone's IP" tip shown when the phone's IP no longer matches Host IP. */
 class IpAdviceTest {
     private val tvOldHost = SamsungTvStatus("Living Room", "QA55Q60", true, "192.168.50.11")
     private val silentTv = SamsungTvStatus("TV", "", null, null)

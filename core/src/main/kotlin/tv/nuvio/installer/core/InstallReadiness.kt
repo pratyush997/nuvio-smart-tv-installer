@@ -18,7 +18,7 @@ enum class ReadyCheck {
         WIFI -> "Phone on Wi-Fi"
         TV -> "TV found"
         DEVELOPER_MODE -> "Developer Mode on"
-        HOST_IP -> "Host PC IP is this phone"
+        HOST_IP -> "Host IP is this phone"
         CONNECTION -> "TV accepts this phone"
         PACKAGE -> "${app.label} file for this TV"
         SIGN_IN -> "Samsung sign-in"
@@ -40,7 +40,7 @@ object InstallReadiness {
         else ReadyResult(ReadyCheck.WIFI, ReadyState.PASS, phoneIp)
 
     /**
-     * The TV rows (found, Developer Mode, Host PC IP, connection) from one TV check, stopping at
+     * The TV rows (found, Developer Mode, Host IP, connection) from one TV check, stopping at
      * the first failure. [status] is what the TV's info port said (null: nothing answered),
      * [connected] whether the installer connection worked.
      */

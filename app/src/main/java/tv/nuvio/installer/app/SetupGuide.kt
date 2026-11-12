@@ -215,7 +215,7 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
         GuideStep(1, "Press Home and open Apps.")
         GuideStep(2, "Press 1 2 3 4 5 on the remote. No number keys? Press the 123 button and pick the numbers on screen.")
         GuideStep(3, "Switch Developer Mode to On.")
-        GuideStep(4, "In Host PC IP, type this number:")
+        GuideStep(4, "In Host IP, type this IP address:")
         Row(
             Modifier
                 .padding(start = 36.dp)
@@ -230,7 +230,7 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
             Text("Copy", color = Palette.Muted, fontSize = 12.sp)
         }
         if (vm.phoneIp.startsWith("10.0.2.") || vm.phoneIp.startsWith("10.0.3.")) {
-            Note("This looks like an emulator address. Enter your computer's Wi-Fi IP on the TV instead (run ipconfig on the PC).", warning = true)
+            Note("This looks like an emulator IP. Enter your computer's Wi-Fi IP on the TV instead (run ipconfig on the PC).", warning = true)
         }
         if (vm.phoneIp == "unknown") {
             Note("This phone is not on Wi-Fi. Connect it to the same Wi-Fi as the TV, then come back to this step.", warning = true)
@@ -283,9 +283,9 @@ private fun TvAddressStep(vm: InstallerViewModel) {
             TvIpField(vm, enabled = vm.busy == null)
         }
     } else {
-        SubtleLink("TV not in the list? Type its address") { typeAddress = true }
+        SubtleLink("TV not in the list? Type its IP") { typeAddress = true }
     }
-    Note("If the router gives your TV a new address one day, the app finds it again by itself.")
+    Note("If the router gives your TV a new IP one day, the app finds it again by itself.")
 }
 
 @Composable
@@ -320,9 +320,9 @@ private fun SamsungAccountStep(vm: InstallerViewModel, onImport: () -> Unit) {
         SubtleLink("Other ways to set up this TV") { otherWays = true }
     } else {
         Panel {
-            SectionTitle("Installed Nuvio from a computer before?")
+            SectionTitle("Used the desktop Nuvio installer before?")
             Text(
-                "Import the file the computer installer saved (samsung-tv-certificate-….json). Otherwise the TV refuses updates.",
+                "Import the file it saved (samsung-tv-certificate-….json). Otherwise the TV refuses updates.",
                 color = Palette.Muted, fontSize = 14.sp, lineHeight = 20.sp,
             )
             SoftButton("Import file", null, enabled = vm.busy == null, onClick = onImport)

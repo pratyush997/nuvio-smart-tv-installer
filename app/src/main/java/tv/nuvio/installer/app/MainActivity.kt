@@ -107,13 +107,13 @@ class MainActivity : ComponentActivity() {
             CustomTabsIntent.Builder().setShowTitle(true).setDefaultColorSchemeParams(colors).build().launchUrl(this, uri)
         } catch (_: Exception) {
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-                .onFailure { Toast.makeText(this, "No browser found to open the Samsung login.", Toast.LENGTH_LONG).show() }
+                .onFailure { Toast.makeText(this, "No browser found to open the Samsung sign-in.", Toast.LENGTH_LONG).show() }
         }
     }
 
     private fun copyText(text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Nuvio installer", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText("TV Installer", text))
         Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
     }
 }

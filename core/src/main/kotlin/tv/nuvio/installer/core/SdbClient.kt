@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Minimal client for Samsung's SDB daemon (an ADB-protocol derivative) that Tizen TVs expose
  * on port 26101 while Developer Mode is enabled. The TV only accepts connections from the
- * "Host PC IP" configured in Developer Mode, and it does not use ADB authentication.
+ * "Host IP" configured in Developer Mode, and it does not use ADB authentication.
  */
 class SdbClient private constructor(private val socket: Socket) : Closeable {
 
@@ -89,11 +89,11 @@ class SdbClient private constructor(private val socket: Socket) : Closeable {
             } catch (e: ConnectException) {
                 socket.close()
                 throw InstallerException(
-                    "The TV refused the connection on $host:$port. Check that Developer Mode is enabled and the TV IP is correct.", e
+                    "The TV refused the connection on $host:$port. Check that Developer Mode is on and the TV IP is correct.", e
                 )
             } catch (e: SocketTimeoutException) {
                 socket.close()
-                throw InstallerException("Timed out connecting to $host:$port. Check the TV IP and that the phone and TV are on the same network.", e)
+                throw InstallerException("Timed out connecting to $host:$port. Check the TV IP and that the phone and TV are on the same Wi-Fi.", e)
             } catch (e: IOException) {
                 socket.close()
                 throw InstallerException("Unable to reach $host:$port: ${e.message}", e)
@@ -117,7 +117,7 @@ class SdbClient private constructor(private val socket: Socket) : Closeable {
             val reset = error is SocketException && (error.message ?: "").contains("reset", ignoreCase = true)
             return if (reset || error is EOFException) {
                 InstallerException(
-                    "The TV closed the connection. In Developer Mode on the TV, \"Host PC IP\" must be set to this device's IP address. Then ${TvNetwork.POWER_CYCLE}.",
+                    "The TV closed the connection. In Developer Mode on the TV, \"Host IP\" must be set to this phone's IP. Then ${TvNetwork.POWER_CYCLE}.",
                     error
                 )
             } else {

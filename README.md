@@ -41,7 +41,7 @@ Requires Android 8.0 or newer.
 The app walks you through this in its built-in setup guide. The steps are:
 
 1. **Pick your TV.** Samsung is supported; LG is coming soon.
-2. **Turn on Developer Mode on the TV.** Open **Apps**, press `1 2 3 4 5` on the remote, switch Developer Mode **On**, and type your phone's IP (the app shows it) as **Host PC IP**.
+2. **Turn on Developer Mode on the TV.** Open **Apps**, press `1 2 3 4 5` on the remote, switch Developer Mode **On**, and type your phone's IP (the app shows it) as **Host IP**.
 3. **Restart the TV at the plug.** Unplug it from power, wait 5 seconds, plug it back in. Turning it off with the remote is not enough.
 4. **Pick your TV in the app.** Tap **Find my TV** and choose it from the list. Not listed? Type its IP: on the TV, Settings › General (or Connection) › Network › Network Status › IP Settings. The app checks the connection and tells you what to fix if it fails.
 5. **Sign in with Samsung and install.** The app downloads Nuvio, opens the Samsung sign-in once so Samsung can create a certificate for your TV, signs the package and installs it. You can watch each step as it happens.
@@ -58,7 +58,7 @@ Nuvio Legacy updates itself on the TV, so the app shows it as "Installed" withou
 
 ### More than one TV
 
-Tap **+** on the TV card and follow the guide for the new TV. Every TV uses this phone's IP as Host PC IP. Switch between TVs with **Switch**. Update notifications come one per TV.
+Tap **+** on the TV card and follow the guide for the new TV. Every TV uses this phone's IP as Host IP. Switch between TVs with **Switch**. Update notifications come one per TV.
 
 All your TVs share one certificate (up to 10 TVs), so Nuvio keeps updating on the TVs you already have. While your Samsung sign-in is saved (the certificate card shows when it expires), adding a TV needs no new sign-in.
 
@@ -93,11 +93,11 @@ Every install or update runs these checks first, one by one, and stops at the fi
 | TV IP is valid and on the same network | Re-read the IP from the TV's network settings |
 | A Samsung TV answers at that IP | Turn the TV on; check the IP |
 | Developer Mode is on | Apps › `1 2 3 4 5` › Developer Mode On, then restart at the plug |
-| Host PC IP matches the phone | Change Host PC IP to the phone's current IP, then restart at the plug |
+| Host IP matches the phone | Change Host IP to the phone's current IP, then restart at the plug |
 | There is a file for this TV | Nuvio Legacy needs a 2018 or newer TV (Tizen 4 or later); pick another version if a release has no file for your TV |
 | Samsung sign-in | Nothing to do: Samsung's page opens during the install. If the TV needs a certificate this phone doesn't have, import it or uninstall Nuvio from the TV |
 
-The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host PC IP you typed. Reserving a fixed IP for your phone in the router settings avoids this; the app suggests it, with a link to the router's page, when it sees the phone's IP change.
+The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host IP you typed. Reserving a fixed IP for your phone in the router settings avoids this; the app suggests it, with a link to the router's page, when it sees the phone's IP change.
 
 The app remembers your TV. When the router gives the TV a new IP, the app finds the TV again and switches to the new address by itself.
 
@@ -159,7 +159,7 @@ The CLI:
 ./gradlew :cli:run --args="install 192.168.1.20 path/to/Nuvio.wgt"
 ```
 
-The TV only accepts connections from its Host PC IP, so set that to your computer's IP when using the CLI.
+The TV only accepts connections from its Host IP, so set that to your computer's IP when using the CLI.
 
 ## Contributing
 

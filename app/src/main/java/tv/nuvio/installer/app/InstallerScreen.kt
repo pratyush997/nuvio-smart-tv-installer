@@ -376,7 +376,7 @@ private fun BottomBar(vm: InstallerViewModel) {
                 val step = (stage?.ordinal ?: 0) + 1
                 total = InstallStage.entries.size
                 done = (step - 1) + (vm.progress ?: 0.5f)
-                text = if (vm.waitingForLogin) "Waiting for Samsung login…" else "Step $step of $total · ${(stage ?: InstallStage.PACKAGE).title}"
+                text = if (vm.waitingForLogin) "Waiting for Samsung sign-in…" else "Step $step of $total · ${(stage ?: InstallStage.PACKAGE).title}"
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text, color = Palette.Text, fontSize = 13.sp, modifier = Modifier.weight(1f))
@@ -569,12 +569,12 @@ private fun TvCard(vm: InstallerViewModel) {
             TvFinder(vm, showButton = action != MainAction.FindTv)
         } else if (vm.tvState != TvState.CHECKING) {
             TextButton(onClick = { editingAddress = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 0.dp)) {
-                Text("Change address · ${vm.tvIp}", color = Palette.Muted, fontSize = 13.sp)
+                Text("Change IP · ${vm.tvIp}", color = Palette.Muted, fontSize = 13.sp)
             }
         }
         vm.tvMovedFrom?.let {
             Text(
-                "Your TV got a new address from the router. The app found it again, nothing to do.",
+                "Your TV got a new IP from the router. The app found it again, nothing to do.",
                 color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
             )
         }
@@ -1081,7 +1081,7 @@ private fun FoundTvRow(tv: FoundTv, phoneIp: String, selected: Boolean, enabled:
     val (color, state) = when {
         tv.isReadyFor(phoneIp) -> Palette.Success to "Ready"
         tv.status.developerMode == false -> Palette.Warning to "Developer Mode off"
-        tv.status.developerIp != null && tv.status.developerIp != phoneIp -> Palette.Warning to "Host PC IP is ${tv.status.developerIp}"
+        tv.status.developerIp != null && tv.status.developerIp != phoneIp -> Palette.Warning to "Host IP is ${tv.status.developerIp}"
         else -> Palette.Faint to "Tap to check"
     }
     Row(
@@ -1385,10 +1385,10 @@ private fun ProgressCard(vm: InstallerViewModel) {
                     Text("Sign in to Samsung", color = Palette.Text, fontWeight = FontWeight.SemiBold)
                 }
                 Text(
-                    "A one-time Samsung login creates the certificate your TV needs. Finish it in the browser, then come back here.",
+                    "A one-time Samsung sign-in creates the certificate your TV needs. Finish it in the browser, then come back here.",
                     color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
                 )
-                TextButton(onClick = vm::reopenLogin) { Text("Open login again", color = Palette.Link) }
+                TextButton(onClick = vm::reopenLogin) { Text("Open sign-in again", color = Palette.Link) }
             }
         }
     }
@@ -1797,8 +1797,6 @@ private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit, onReport:
                 AboutRow("Made by", "Pratyush", Palette.Link) { uri.openUri("https://github.com/pratyush997") }
                 HorizontalDivider(color = Palette.Outline)
                 AboutRow("Licence", "Open source · GPL-3.0", Palette.Link) { uri.openUri("$repo/blob/main/LICENSE") }
-                HorizontalDivider(color = Palette.Outline)
-                AboutRow("Nuvio Legacy", "Community app · GitHub", Palette.Link) { uri.openUri(NuvioApp.LEGACY.repoUrl) }
                 HorizontalDivider(color = Palette.Outline)
                 when (val status = vm.appUpdateStatus) {
                     AppUpdateStatus.Checking -> AboutRow("Updates", "Checking…", Palette.Muted)

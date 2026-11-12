@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 
 /** A Samsung TV that answered on its info port during a scan. */
 data class FoundTv(val ip: String, val status: SamsungTvStatus) {
-    /** Developer Mode is on and Host PC IP is [phoneIp], so the installer can connect. */
+    /** Developer Mode is on and Host IP is [phoneIp], so the installer can connect. */
     fun isReadyFor(phoneIp: String?): Boolean =
         status.developerMode == true && phoneIp != null && status.developerIp == phoneIp
 }

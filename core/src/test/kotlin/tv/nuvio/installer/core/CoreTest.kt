@@ -94,13 +94,13 @@ class CoreTest {
         fun fix(phone: String?, tv: String, s: SamsungTvStatus?, connected: Boolean = false, lastGood: String? = null) =
             TvNetwork.report(phone, 24, tv, s, connected, "boom", lastGood)
         assertNull(fix("192.168.50.11", "192.168.50.9", status, connected = true).fix)
-        assertTrue(fix("192.168.50.14", "192.168.50.9", status).fix!!.text.contains("Change Host PC IP from 192.168.50.11 to 192.168.50.14."))
+        assertTrue(fix("192.168.50.14", "192.168.50.9", status).fix!!.text.contains("Change Host IP from 192.168.50.11 to 192.168.50.14."))
         assertTrue(fix("192.168.50.11", "192.168.50.9", status).fix!!.reason!!.contains("has not applied them"))
         assertTrue(fix("192.168.50.11", "192.168.50.9", status!!.copy(developerMode = false)).fix!!.steps.contains("Switch Developer Mode on."))
         assertTrue(fix("192.168.50.11", "192.168.51.9", null).rows.last().text.contains("different network"))
         assertTrue(fix("192.168.50.11", "192.168.50.9", null).rows.last().text.contains("No Samsung TV answered"))
         assertTrue(fix("192.168.50.11", "192.168.50.11", null).rows.last().text.contains("this phone's IP"))
-        assertTrue(fix("192.168.50.11", "abc", null).rows.last().text.contains("not a valid address"))
+        assertTrue(fix("192.168.50.11", "abc", null).rows.last().text.contains("TV IP is not valid"))
         assertTrue(fix(null, "192.168.50.9", null).fix!!.text.contains("same Wi-Fi"))
         val unknown = SamsungTvStatus("TV", "", null, null)
         assertTrue(fix("192.168.50.14", "192.168.50.9", unknown, lastGood = "192.168.50.11").fix!!.reason!!.contains("changed from 192.168.50.11 to 192.168.50.14"))
@@ -114,9 +114,9 @@ class CoreTest {
         // Emulators: never tell the user to type the emulator's 10.0.2.x address on the TV.
         assertTrue(TvNetwork.isEmulatorAddress("10.0.2.15") && !TvNetwork.isEmulatorAddress("10.0.20.15"))
         val emu = fix("10.0.2.15", "192.168.50.9", crystal)
-        assertTrue(emu.fix!!.steps.contains("Change Host PC IP from 192.168.50.8 to your computer's Wi-Fi IP. Run ipconfig on the PC to find it."))
+        assertTrue(emu.fix!!.steps.contains("Change Host IP from 192.168.50.8 to your computer's Wi-Fi IP. Run ipconfig on the PC to find it."))
         assertEquals("1. On the TV, open Apps and press 1 2 3 4 5 on the remote.", emu.fix!!.text.lines()[1])
-        assertTrue(emu.rows.none { it.state == CheckState.FAIL && it.text.contains("Host PC IP") })
+        assertTrue(emu.rows.none { it.state == CheckState.FAIL && it.text.contains("Host IP") })
         assertTrue(!fix("10.0.2.15", "192.168.50.9", null).rows.last().text.contains("different network"))
     }
 
