@@ -7,7 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class InstallReadinessTest {
-    private val phone = "192.168.1.8"
+    private val phone = "192.168.50.8"
     private fun status(mode: Boolean?, hostIp: String?) = SamsungTvStatus("Living Room", "UA65", mode, hostIp)
     private fun states(rows: List<ReadyResult>) = rows.map { it.check to it.state }
 
@@ -41,12 +41,12 @@ class InstallReadinessTest {
 
     @Test
     fun wrongHostIpStopsThereAndNamesBothAddresses() {
-        val rows = InstallReadiness.tvRows(status(true, "192.168.1.11"), phone, connected = false)
+        val rows = InstallReadiness.tvRows(status(true, "192.168.50.11"), phone, connected = false)
         assertEquals(
             listOf(ReadyCheck.TV to ReadyState.PASS, ReadyCheck.DEVELOPER_MODE to ReadyState.PASS, ReadyCheck.HOST_IP to ReadyState.FAIL),
             states(rows),
         )
-        assertEquals("The TV has 192.168.1.11, this phone is $phone", rows.last().detail)
+        assertEquals("The TV has 192.168.50.11, this phone is $phone", rows.last().detail)
     }
 
     @Test
@@ -77,7 +77,7 @@ class InstallReadinessTest {
 
     @Test
     fun emulatorHostIpIsUnsure() {
-        val rows = InstallReadiness.tvRows(status(true, "192.168.1.11"), "10.0.2.15", connected = false)
+        val rows = InstallReadiness.tvRows(status(true, "192.168.50.11"), "10.0.2.15", connected = false)
         assertEquals(ReadyCheck.HOST_IP to ReadyState.UNSURE, states(rows)[2])
     }
 

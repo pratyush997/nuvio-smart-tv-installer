@@ -15,7 +15,7 @@ class AutoUpdateTest {
     private fun plan(
         latest: Release? = release("v1.3.0"),
         enabled: Boolean = true,
-        tvIp: String = "192.168.1.9",
+        tvIp: String = "192.168.50.9",
         onWifi: Boolean = true,
         hasCertificate: Boolean = true,
         attempts: Int = 0,

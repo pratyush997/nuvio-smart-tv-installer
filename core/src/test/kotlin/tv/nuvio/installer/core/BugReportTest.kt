@@ -10,33 +10,33 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BugReportTest {
-    private val info = BugReportInfo("1.4.0", "Google Pixel 8, Android 16", "UA65CUE70AKLXL, Tizen 7.0", "1.2.0")
+    private val info = BugReportInfo("1.4.0", "Google Pixel 8, Android 16", "UA55TEST100, Tizen 7.0", "1.2.0")
 
     @Test
     fun redactsPrivateDetails() {
         val log = """
-            [info] TV DUID: 43CLIM2Y3FMSU
-            [info] Using the saved certificate for 43CLIM2Y3FMSU.
+            [info] TV DUID: TESTDUID0001
+            [info] Using the saved certificate for TESTDUID0001.
             [info] Signed in as someone.name+tv@example.co.in
-            [info] wss://192.168.1.9:8002/api?name=VFYgSW5zdGFsbGVy&token=12345678
+            [info] wss://192.168.50.9:8002/api?name=VFYgSW5zdGFsbGVy&token=12345678
             [info] access_token: "aBcD1234efGH5678"
             [info] MIIKAgIBAzCCCbwGCSqGSIb3DQEHAaCCCa0EggmpMIIJpTCCBBcGCSqGSIb3DQEHBqCCBAgwggQEAgEA
-            [error] Connection reset by 192.168.1.9:26101
+            [error] Connection reset by 192.168.50.9:26101
         """.trimIndent()
-        val out = BugReport.redact(log, secrets = listOf("43CLIM2Y3FMSU"))
-        assertFalse(out.contains("43CLIM2Y3FMSU"))
+        val out = BugReport.redact(log, secrets = listOf("TESTDUID0001"))
+        assertFalse(out.contains("TESTDUID0001"))
         assertFalse(out.contains("example.co.in"))
         assertFalse(out.contains("12345678"))
         assertFalse(out.contains("aBcD1234efGH5678"))
         assertFalse(out.contains("MIIKAgIBAzCC"))
         // Local IPs and the error itself stay: they are what the report is for.
-        assertTrue(out.contains("Connection reset by 192.168.1.9:26101"))
+        assertTrue(out.contains("Connection reset by 192.168.50.9:26101"))
         assertTrue(out.contains("TV DUID: [hidden]"))
     }
 
     @Test
     fun duidIsHiddenEvenWhenNotPassed() {
-        assertEquals("[info] TV DUID: [hidden]", BugReport.redact("[info] TV DUID: 43CLIM2Y3FMSU"))
+        assertEquals("[info] TV DUID: [hidden]", BugReport.redact("[info] TV DUID: TESTDUID0001"))
     }
 
     @Test
@@ -46,7 +46,7 @@ class BugReportTest {
         val params = url.substringAfter("?").split("&").associate { it.substringBefore("=") to URLDecoder.decode(it.substringAfter("="), "UTF-8") }
         assertEquals("1.4.0", params["app-version"])
         assertEquals("Google Pixel 8, Android 16", params["phone"])
-        assertEquals("UA65CUE70AKLXL, Tizen 7.0, Nuvio 1.2.0", params["tv"])
+        assertEquals("UA55TEST100, Tizen 7.0, Nuvio 1.2.0", params["tv"])
         assertEquals("[error] Upload failed", params["log"])
     }
 

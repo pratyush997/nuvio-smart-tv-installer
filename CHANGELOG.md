@@ -59,7 +59,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Install progress and results now appear at the top of the screen instead of below the TV card.
 
 ### Fixed
-- TV names with quotes showed as `65&quot; Crystal UHD`.
+- TV names with quotes showed as `55&quot; Crystal UHD`.
 - In an Android emulator (MSI App Player, BlueStacks), the address check told you to type the emulator's 10.0.2.x address on the TV. It now tells you to use your computer's Wi-Fi IP.
 
 ## [1.2.0] - 2026-11-10
