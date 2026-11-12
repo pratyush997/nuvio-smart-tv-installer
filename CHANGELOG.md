@@ -4,8 +4,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## [Unreleased]
 
+### Added
+- **Wi-Fi check**: the app now watches the phone's Wi-Fi. When the phone is not on Wi-Fi, the main screen, the install checks and the setup guide (What you need, Developer Mode, Find your TV) show "This phone is not on Wi-Fi" with one button, **Open Wi-Fi settings** (the quick Wi-Fi panel on Android 10 and newer). The guide waits on those steps until the phone is on Wi-Fi. When the phone joins Wi-Fi (or gets a new address), the app checks the TV again, or looks for TVs if none is picked yet.
+
 ### Changed
 - The app now says "Host IP" instead of "Host PC IP", since the IP to type there is this phone's. Where the app meant an IP address, it now says "IP" instead of "number" or "address". It says "phone" instead of "device", "Samsung sign-in" everywhere instead of a mix of "login" and "sign-in", and "the desktop Nuvio installer" instead of "the computer installer".
+
+### Fixed
+- On mobile data, the phone's mobile address could be taken for a Wi-Fi address, so the app said "On Wi-Fi" and showed the wrong IP to type in Host IP.
 
 ## [1.4.0] - 2026-11-11
 

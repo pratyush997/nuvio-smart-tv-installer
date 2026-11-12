@@ -7,9 +7,14 @@ import android.app.Application
 import android.content.ContentValues
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
@@ -19,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -276,6 +282,16 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private var phoneNetwork = phoneNetwork()
     var phoneIp by mutableStateOf(phoneNetwork.ip ?: "unknown")
         private set
+    /** False while the phone has no Wi-Fi (or Ethernet) address: no TV can be found or reached then. */
+    val onWifi: Boolean get() = phoneIp != "unknown"
+
+    /** Wi-Fi coming, going or changing address; the change is read once it settles. Declared before init, which registers it. */
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = networkChanged()
+        override fun onLost(network: Network) = networkChanged()
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = networkChanged()
+    }
+    private var networkJob: Job? = null
     /** Result of the last phone/TV address check. */
     var ipReport by mutableStateOf<IpReport?>(null)
         private set
@@ -366,6 +382,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         private set
 
     init {
+        watchNetwork()
         refreshIdentities()
         showGuide = !prefs.getBoolean("setupDone", false)
         NuvioApp.entries.forEach(::loadReleases)
@@ -510,6 +527,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             online = tvState == TvState.ONLINE,
             apps = NuvioApp.entries.associateWith { MainAction.AppState(isInstalled(it), it == NuvioApp.TV && updateAvailable) },
             failedChecks = checkFailed,
+            onWifi = onWifi,
         )
 
     /** How [release] compares with what is on the TV: -1 when it is newer, null when unknown. */
@@ -558,6 +576,57 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     fun refreshPhoneIp() {
         phoneNetwork = phoneNetwork()
         phoneIp = phoneNetwork.ip ?: "unknown"
+    }
+
+    /**
+     * Re-reads the phone's network (on Wi-Fi changes and when the app comes back to the screen).
+     * Wi-Fi lost: the TV shows as not checked, since it can't be reached. Wi-Fi back, or a new
+     * address: checks the TV again, or looks for TVs when none is picked yet.
+     */
+    fun phoneNetworkChanged() {
+        val before = phoneNetwork.ip
+        refreshPhoneIp()
+        val now = phoneNetwork.ip
+        if (now == before) return
+        log.add(LogLine(LogLevel.INFO, if (now == null) "Phone left Wi-Fi" else "Phone on Wi-Fi: $now"))
+        if (busy != null) return
+        if (now == null) {
+            foundTvs = null
+            if (tvState != TvState.CHECKING) {
+                tvState = TvState.UNKNOWN
+                tvError = null
+                ipReport = null
+            }
+        } else if (tvIp.isNotBlank()) {
+            checkTv()
+        } else {
+            scanForTvs(autoSelect = savedTvs.isEmpty())
+        }
+    }
+
+    private fun networkChanged() {
+        networkJob?.cancel()
+        networkJob = viewModelScope.launch {
+            delay(500)
+            phoneNetworkChanged()
+        }
+    }
+
+    private fun watchNetwork() {
+        val manager = getApplication<Application>().getSystemService(ConnectivityManager::class.java) ?: return
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            // A Wi-Fi without internet still reaches the TV.
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        runCatching { manager.registerNetworkCallback(request, networkCallback, Handler(Looper.getMainLooper())) }
+            .onFailure { log.add(LogLine(LogLevel.ERROR, "Can't watch Wi-Fi changes: ${it.message}")) }
+    }
+
+    override fun onCleared() {
+        runCatching { getApplication<Application>().getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(networkCallback) }
+        super.onCleared()
     }
 
     fun openGuide() {
@@ -1352,12 +1421,19 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         return PhoneNetwork(localIpv4(), 24)
     }
 
+    /** Interface names phones use for mobile data, whose 10.x addresses would look like Wi-Fi. */
+    private fun isMobileData(name: String): Boolean =
+        MOBILE_INTERFACES.any { name.startsWith(it) || name.contains("rmnet") }
+
     private fun localIpv4(): String? = runCatching {
         NetworkInterface.getNetworkInterfaces().toList()
-            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual && !isMobileData(it.name) }
             .sortedBy { if (it.name.startsWith("wlan")) 0 else 1 }
             .flatMap { it.inetAddresses.toList() }
             .filterIsInstance<Inet4Address>()
             .firstOrNull { it.isSiteLocalAddress }?.hostAddress
     }.getOrNull()
 }
+
+/** Prefixes of mobile-data interfaces (Qualcomm, MediaTek, Unisoc, tunnels and 464xlat). */
+private val MOBILE_INTERFACES = listOf("rmnet", "ccmni", "ccemni", "pdp", "seth", "clat", "v4-", "tun", "ppp", "epdg", "ipsec")

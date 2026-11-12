@@ -102,6 +102,9 @@ object InstallReadiness {
 
 /** The one highlighted button on the main screen. */
 sealed interface MainAction {
+    /** The phone is not on Wi-Fi, so no TV can be found or reached. */
+    data object ConnectWifi : MainAction
+
     /** No TV picked yet. */
     data object FindTv : MainAction
 
@@ -117,11 +120,18 @@ sealed interface MainAction {
 
     companion object {
         /**
-         * Picks the highlighted button: Find my TV, Check again, Update Nuvio TV, Open an installed
+         * Picks the highlighted button: Connect to Wi-Fi, Find my TV, Check again, Update Nuvio TV, Open an installed
          * app (Nuvio TV first), and Install Nuvio TV only when neither app is on the TV.
          * [failedChecks]: the app whose install checks failed last, if any.
          */
-        fun pick(hasTv: Boolean, online: Boolean, apps: Map<NuvioApp, AppState>, failedChecks: NuvioApp? = null): MainAction {
+        fun pick(
+            hasTv: Boolean,
+            online: Boolean,
+            apps: Map<NuvioApp, AppState>,
+            failedChecks: NuvioApp? = null,
+            onWifi: Boolean = true,
+        ): MainAction {
+            if (!onWifi) return ConnectWifi
             if (!hasTv) return FindTv
             if (failedChecks != null) return CheckAgain(failedChecks)
             if (!online) return CheckAgain(null)

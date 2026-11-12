@@ -143,17 +143,30 @@ class InstallReadinessTest {
     private val none = MainAction.AppState(installed = false)
     private val installed = MainAction.AppState(installed = true)
     private val outdated = MainAction.AppState(installed = true, updateAvailable = true)
-    private fun pick(tv: MainAction.AppState, legacyApp: MainAction.AppState, hasTv: Boolean = true, online: Boolean = true, failed: NuvioApp? = null) =
-        MainAction.pick(hasTv, online, mapOf(NuvioApp.TV to tv, NuvioApp.LEGACY to legacyApp), failed)
+    private fun pick(
+        tv: MainAction.AppState,
+        legacyApp: MainAction.AppState,
+        hasTv: Boolean = true,
+        online: Boolean = true,
+        failed: NuvioApp? = null,
+        onWifi: Boolean = true,
+    ) = MainAction.pick(hasTv, online, mapOf(NuvioApp.TV to tv, NuvioApp.LEGACY to legacyApp), failed, onWifi)
 
     @Test
     fun highlightFollowsTheOrder() {
+        assertEquals(MainAction.ConnectWifi, pick(outdated, installed, hasTv = false, online = false, onWifi = false))
         assertEquals(MainAction.FindTv, pick(outdated, installed, hasTv = false, online = false))
         assertEquals(MainAction.CheckAgain(null), pick(outdated, installed, online = false))
         assertEquals(MainAction.CheckAgain(NuvioApp.LEGACY), pick(outdated, installed, failed = NuvioApp.LEGACY))
         assertEquals(MainAction.Update(NuvioApp.TV), pick(outdated, installed))
         assertEquals(MainAction.Open(NuvioApp.TV), pick(installed, installed))
         assertEquals(MainAction.Install(NuvioApp.TV), pick(none, none))
+    }
+
+    @Test
+    fun noWifiComesBeforeEverything() {
+        assertEquals(MainAction.ConnectWifi, pick(outdated, installed, onWifi = false))
+        assertEquals(MainAction.ConnectWifi, pick(none, none, failed = NuvioApp.TV, onWifi = false))
     }
 
     @Test

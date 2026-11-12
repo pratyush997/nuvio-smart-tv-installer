@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.refreshPhoneIp()
+        viewModel.phoneNetworkChanged()
     }
 
     override fun onNewIntent(intent: Intent) {

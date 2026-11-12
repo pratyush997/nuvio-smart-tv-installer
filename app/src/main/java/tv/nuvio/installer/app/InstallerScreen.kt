@@ -4,6 +4,10 @@
 package tv.nuvio.installer.app
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -87,6 +91,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
@@ -562,6 +567,12 @@ private fun TvCard(vm: InstallerViewModel) {
         }
         if (switching) TvList(vm, enabled = !busy, onPicked = { switching = false })
 
+        // Without Wi-Fi nothing below can work: the notice and its button take their place.
+        if (action == MainAction.ConnectWifi) {
+            NoWifiNotice()
+            return@Panel
+        }
+
         // The field stays while an address is typed or checked, until it belongs to a saved TV.
         val newAddress = vm.currentTv == null && vm.tvState != TvState.ONLINE
         if (noTv || newAddress || editingAddress) {
@@ -617,7 +628,10 @@ private fun tvTitle(vm: InstallerViewModel): String =
         ?: vm.tvName.takeIf { it.isNotBlank() }
         ?: "No TV yet"
 
-private fun tvStatus(vm: InstallerViewModel): Pair<Color, String> = when (vm.tvState) {
+private fun tvStatus(vm: InstallerViewModel): Pair<Color, String> =
+    if (!vm.onWifi) Palette.Error to "Phone not on Wi-Fi" else tvStateStatus(vm)
+
+private fun tvStateStatus(vm: InstallerViewModel): Pair<Color, String> = when (vm.tvState) {
     TvState.UNKNOWN -> Palette.Faint to if (vm.tvIp.isBlank()) "Not picked yet" else "Not checked yet"
     TvState.CHECKING -> Palette.Warning to "Connecting…"
     TvState.ONLINE -> Palette.Success to buildString {
@@ -746,7 +760,9 @@ private fun ChecklistCard(vm: InstallerViewModel, app: NuvioApp) {
             val tvRow = failed.check in TvChecks
             val fix = vm.ipReport?.fix
             if (tvRow && fix != null) FixBox(fix)
-            GradientButton("Check again", enabled = vm.busy == null, onClick = { vm.install(app) })
+            // Joining Wi-Fi checks the TV again by itself, so the settings are the one thing to open.
+            if (failed.check == ReadyCheck.WIFI && !vm.onWifi) NoWifiNotice()
+            else GradientButton("Check again", enabled = vm.busy == null, onClick = { vm.install(app) })
             if (tvRow || failed.check == ReadyCheck.WIFI) {
                 TextButton(onClick = vm::openGuide) { Text("Setup guide", color = Palette.Link) }
             }
@@ -1754,6 +1770,27 @@ internal fun WarningBox(title: String, text: String) {
         }
         Text(text, color = Palette.Text, fontSize = 13.sp, lineHeight = 18.sp)
     }
+}
+
+/**
+ * Shown wherever the phone needs Wi-Fi. With [button], it carries the main action;
+ * the setup guide puts that button in its bottom bar instead.
+ */
+@Composable
+internal fun NoWifiNotice(button: Boolean = true) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        WarningBox("This phone is not on Wi-Fi", "Connect it to the same Wi-Fi as your TV. The app can't find or reach the TV without it.")
+        if (button) GradientButton("Open Wi-Fi settings", enabled = true, onClick = { openWifiSettings(context) })
+    }
+}
+
+/** The Wi-Fi panel over the app on Android 10 and newer; the Wi-Fi settings page before that. */
+internal fun openWifiSettings(context: Context) {
+    val page = Intent(Settings.ACTION_WIFI_SETTINGS)
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Intent(Settings.Panel.ACTION_WIFI) else page
+    runCatching { context.startActivity(intent) }
+        .recoverCatching { context.startActivity(page) }
 }
 
 internal fun formatDate(instant: java.time.Instant): String =

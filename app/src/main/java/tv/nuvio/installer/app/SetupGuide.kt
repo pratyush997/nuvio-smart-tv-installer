@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
@@ -53,6 +54,9 @@ import tv.nuvio.installer.core.NuvioApp
 import tv.nuvio.installer.core.TvBrand
 
 private const val GUIDE_STEPS = 6
+
+/** Steps that can't be done without Wi-Fi: what you need, Developer Mode (the phone's address), find your TV. */
+private val WIFI_STEPS = setOf(1, 2, 4)
 
 /**
  * First-time setup, one step per screen: which TV, what you need, Developer Mode, restart,
@@ -66,11 +70,12 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
     val busy = vm.busy != null
     val connected = vm.tvState == TvState.ONLINE
     val focus = LocalFocusManager.current
+    val context = LocalContext.current
     val scroll = rememberScrollState()
     LaunchedEffect(step) {
         scroll.scrollTo(0)
-        // The "find your TV" step looks for TVs as soon as it opens.
-        if (step == 4 && vm.tvIp.isBlank() && vm.foundTvs == null) vm.scanForTvs()
+        // The "find your TV" step looks for TVs as soon as it opens. Without Wi-Fi, joining it starts the search.
+        if (step == 4 && vm.onWifi && vm.tvIp.isBlank() && vm.foundTvs == null) vm.scanForTvs()
     }
     BackHandler { if (step > 0) step-- else vm.closeGuide() }
 
@@ -112,7 +117,9 @@ fun SetupGuide(vm: InstallerViewModel, copy: (String) -> Unit, onImport: () -> U
                     SoftButton("Back", null, enabled = !busy, onClick = { step-- }, modifier = Modifier.width(96.dp).height(56.dp))
                 }
                 val next: () -> Unit = { step++ }
-                when (step) {
+                if (!vm.onWifi && step in WIFI_STEPS) {
+                    GradientButton("Open Wi-Fi settings", enabled = true, onClick = { openWifiSettings(context) }, modifier = Modifier.weight(1f))
+                } else when (step) {
                     0 -> GradientButton(
                         if (brand == TvBrand.LG) "LG is coming soon" else "Next",
                         enabled = brand == TvBrand.SAMSUNG, onClick = next, modifier = Modifier.weight(1f),
@@ -194,16 +201,16 @@ private fun NeedsStep(vm: InstallerViewModel) {
         Bullet("This phone and the TV on the same Wi-Fi")
         Bullet("A Samsung account. It's free, and you sign in only once.")
     }
+    if (!vm.onWifi) {
+        NoWifiNotice(button = false)
+        return
+    }
     Panel {
         SectionTitle("This phone")
-        val onNetwork = vm.phoneIp != "unknown"
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(if (onNetwork) Palette.Success else Palette.Error)
+            StatusDot(Palette.Success)
             Spacer(Modifier.width(10.dp))
-            Text(
-                if (onNetwork) "On Wi-Fi" else "Not on Wi-Fi. Connect to the same Wi-Fi as the TV first.",
-                color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp,
-            )
+            Text("On Wi-Fi", color = Palette.Text, fontSize = 14.sp, lineHeight = 20.sp)
         }
     }
 }
@@ -211,6 +218,11 @@ private fun NeedsStep(vm: InstallerViewModel) {
 @Composable
 private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
     GuideTitle("Turn on Developer Mode", "On the TV, with the TV remote. This lets the TV accept Nuvio from your phone.")
+    // The IP address to type on the TV is the phone's Wi-Fi address.
+    if (!vm.onWifi) {
+        NoWifiNotice(button = false)
+        return
+    }
     Panel {
         GuideStep(1, "Press Home and open Apps.")
         GuideStep(2, "Press 1 2 3 4 5 on the remote. No number keys? Press the 123 button and pick the numbers on screen.")
@@ -231,9 +243,6 @@ private fun DeveloperModeStep(vm: InstallerViewModel, copy: (String) -> Unit) {
         }
         if (vm.phoneIp.startsWith("10.0.2.") || vm.phoneIp.startsWith("10.0.3.")) {
             Note("This looks like an emulator IP. Enter your computer's Wi-Fi IP on the TV instead (run ipconfig on the PC).", warning = true)
-        }
-        if (vm.phoneIp == "unknown") {
-            Note("This phone is not on Wi-Fi. Connect it to the same Wi-Fi as the TV, then come back to this step.", warning = true)
         }
         GuideStep(5, "Select OK.")
     }
@@ -256,6 +265,10 @@ private fun TvAddressStep(vm: InstallerViewModel) {
     var typeAddress by rememberSaveable { mutableStateOf(false) }
     val nothingFound = vm.foundTvs?.isEmpty() == true
     GuideTitle("Find your TV", "Make sure the TV is on, then tap it in the list.")
+    if (!vm.onWifi) {
+        NoWifiNotice(button = false)
+        return
+    }
     Panel {
         TvFinder(vm, showButton = false)
         when (vm.tvState) {
