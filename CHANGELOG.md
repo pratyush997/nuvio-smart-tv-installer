@@ -2,7 +2,7 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.0] - 2026-11-12
 
 ### Added
 - **Wi-Fi check**: the app now watches the phone's Wi-Fi. When the phone is not on Wi-Fi, the main screen, the install checks and the setup guide (What you need, Developer Mode, Find your TV) show "This phone is not on Wi-Fi" with one button, **Open Wi-Fi settings** (the quick Wi-Fi panel on Android 10 and newer). The guide waits on those steps until the phone is on Wi-Fi. When the phone joins Wi-Fi (or gets a new address), the app checks the TV again, or looks for TVs if none is picked yet.
@@ -104,6 +104,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.5.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.0
 [1.4.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.4.0
 [1.3.1]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.1
 [1.3.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.0
