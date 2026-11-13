@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV Installer for Nuvio · Put Nuvio on your Samsung TV from your phone</title>
+<meta name="description" content="A free Android app that installs and updates Nuvio TV on a Samsung smart TV, straight from your phone. No computer, no Tizen Studio.">
+<meta name="theme-color" content="#0A0A0F">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:title" content="TV Installer for Nuvio">
+<meta property="og:description" content="Put Nuvio on your Samsung TV from your phone. No computer needed. Updates take one tap.">
+<meta property="og:image" content="https://pratyush997.github.io/nuvio-smart-tv-installer/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+:root {
+  --bg: #0A0A0F;
+  --surface: #14141B;
+  --surface-high: #1C1C25;
+  --outline: #2A2A35;
+  --text: #F4F4F6;
+  --muted: #9A9AA8;
+  --faint: #8B8B9A;
+  --link: #7DD3FC;
+  --accent: #0EA5E9;
+  --success: #34D399;
+  --error: #F87171;
+  --warning: #FBBF24;
+  --brand: linear-gradient(90deg, #1D4ED8, #0E7490);
+  --brand-diag: linear-gradient(135deg, #1D4ED8, #0E7490);
+  --radius: 20px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { display: block; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ------------------------------------------------------------ nav */
+.nav { position: sticky; top: 0; z-index: 20; background: rgba(10,10,15,.78); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid rgba(42,42,53,.6); }
+.nav .wrap { display: flex; align-items: center; gap: 20px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; }
+.brand:hover { text-decoration: none; }
+.brand img { width: 32px; height: 32px; }
+.brand small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; line-height: 1; }
+.brand span { line-height: 1.15; }
+.nav-links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
+.nav-links a { color: var(--muted); }
+.nav-links a:hover { color: var(--text); text-decoration: none; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  height: 52px; padding: 0 26px; border-radius: 16px;
+  background: var(--brand); color: #fff; font-weight: 600; font-size: 16px;
+  box-shadow: 0 10px 30px -10px rgba(14,165,233,.55);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.btn:hover { text-decoration: none; transform: translateY(-1px); box-shadow: 0 14px 34px -10px rgba(14,165,233,.7); }
+.btn svg { width: 20px; height: 20px; }
+.btn.small { height: 40px; padding: 0 16px; border-radius: 12px; font-size: 14px; box-shadow: none; }
+
+/* ------------------------------------------------------------ hero */
+.hero { position: relative; padding: 72px 0 56px; }
+.hero::before {
+  content: ""; position: absolute; inset: -200px 0 auto 0; height: 900px; z-index: -1;
+  background:
+    radial-gradient(600px 380px at 78% 30%, rgba(29,78,216,.35), transparent 70%),
+    radial-gradient(520px 340px at 60% 60%, rgba(14,116,144,.32), transparent 70%),
+    radial-gradient(500px 300px at 10% 10%, rgba(14,165,233,.12), transparent 70%);
+}
+.hero .wrap { display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: center; }
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--surface-high); border: 1px solid var(--outline); color: var(--muted); font-size: 13px; font-weight: 500; }
+.eyebrow .dot { width: 8px; height: 8px; }
+h1 { font-size: clamp(36px, 5vw, 56px); line-height: 1.06; letter-spacing: -.025em; margin: 20px 0 18px; font-weight: 700; }
+.grad-text { background: linear-gradient(90deg, #60A5FA, #22D3EE); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lead { font-size: 18px; color: var(--muted); max-width: 520px; margin: 0 0 30px; }
+.cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+.cta-note { color: var(--faint); font-size: 13px; margin-top: 16px; }
+.cta-note a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+
+.hero-visual { position: relative; height: 600px; }
+.hero-visual .tv { position: absolute; left: -10px; top: 30px; width: 500px; }
+.hero-visual .phone { position: absolute; right: -10px; top: 0; z-index: 2; }
+.toast {
+  position: absolute; left: 10px; top: 380px; z-index: 3;
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 14px;
+  background: rgba(20,20,27,.92); border: 1px solid var(--outline); box-shadow: 0 20px 40px -12px rgba(0,0,0,.6);
+  font-size: 14px; animation: float 5s ease-in-out infinite;
+}
+.toast b { font-weight: 600; }
+.toast small { display: block; color: var(--muted); font-size: 12px; }
+@keyframes float { 50% { transform: translateY(-8px); } }
+
+/* ------------------------------------------------------------ sections */
+section { padding: 88px 0; }
+.section-head { text-align: center; max-width: 640px; margin: 0 auto 56px; }
+.section-head .kicker { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
+h2 { font-size: clamp(28px, 3.6vw, 40px); line-height: 1.12; letter-spacing: -.02em; margin: 10px 0 14px; }
+.section-head p { color: var(--muted); font-size: 17px; margin: 0; }
+h3 { font-size: 22px; margin: 0 0 10px; letter-spacing: -.01em; }
+
+/* need */
+.need { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.need-item { display: flex; gap: 14px; align-items: flex-start; padding: 20px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--outline); }
+.need-item .ic { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(14,165,233,.12); color: var(--link); }
+.need-item .ic svg { width: 22px; height: 22px; }
+.need-item b { display: block; font-size: 15px; margin-bottom: 2px; }
+.need-item span { color: var(--muted); font-size: 14px; }
+
+/* steps */
+.steps { display: flex; flex-direction: column; gap: 72px; }
+.step { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+.step:nth-child(even) .step-text { order: 2; }
+.step-num { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--brand-diag); font-weight: 700; margin-bottom: 18px; }
+.step-text p { color: var(--muted); font-size: 16px; margin: 0 0 14px; }
+.step-text ol { margin: 0 0 14px; padding-left: 20px; color: var(--muted); }
+.step-text li { margin: 6px 0; }
+.step-text li b, .step-text p b { color: var(--text); font-weight: 600; }
+.keys { display: inline-flex; gap: 4px; vertical-align: middle; }
+.keys kbd { font-family: var(--font); font-size: 12px; font-weight: 600; min-width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 6px; background: var(--surface-high); border: 1px solid var(--outline); color: var(--text); }
+.tip { display: flex; gap: 10px; padding: 14px 16px; border-radius: 14px; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.25); color: #FDE68A; font-size: 14px; }
+.tip svg { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+.step-visual { position: relative; display: flex; justify-content: center; align-items: center; }
+.tv-inline { width: 100%; max-width: 440px; margin-top: 26px; }
+
+/* features */
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.feature { padding: 24px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--outline); }
+.feature .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: rgba(14,165,233,.12); color: var(--link); margin-bottom: 16px; }
+.feature .ic svg { width: 20px; height: 20px; }
+.feature b { display: block; font-size: 16px; margin-bottom: 6px; }
+.feature p { margin: 0; color: var(--muted); font-size: 14px; }
+
+/* split (updates, checks) */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+.split .copy p { color: var(--muted); font-size: 16px; }
+.bullets { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 12px; }
+.bullets li { display: flex; gap: 12px; color: var(--muted); }
+.bullets li svg { flex: none; width: 22px; height: 22px; padding: 4px; border-radius: 50%; background: rgba(52,211,153,.15); color: var(--success); }
+.bullets b { color: var(--text); font-weight: 600; }
+.stack { position: relative; display: flex; justify-content: center; padding-top: 34px; }
+.notif {
+  position: absolute; z-index: 3; top: 0; left: 50%; transform: translateX(-58%);
+  width: 330px; padding: 14px 16px; border-radius: 22px;
+  background: #24242E; border: 1px solid #3A3A48; box-shadow: 0 24px 50px -14px rgba(0,0,0,.75);
+  font-size: 13px; animation: float 5s ease-in-out infinite;
+}
+.notif .top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.notif .top img { width: 18px; height: 18px; border-radius: 5px; }
+.notif b { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.notif span { color: var(--muted); }
+
+/* faq */
+.faq { max-width: 760px; margin: 0 auto; display: grid; gap: 10px; }
+details { border-radius: 16px; background: var(--surface); border: 1px solid var(--outline); }
+summary { cursor: pointer; list-style: none; padding: 18px 20px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: ""; margin-left: auto; width: 10px; height: 10px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translateY(-3px); transition: transform .2s ease; }
+details[open] summary::after { transform: rotate(-135deg) translateY(-3px); }
+details > div { padding: 0 20px 18px; color: var(--muted); }
+details > div p { margin: 0 0 10px; }
+
+/* final cta */
+.final { text-align: center; padding: 96px 0; position: relative; }
+.final::before { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(600px 300px at 50% 60%, rgba(29,78,216,.28), transparent 70%); }
+.final img { width: 72px; height: 72px; margin: 0 auto 22px; }
+.final p { color: var(--muted); margin: 0 auto 28px; max-width: 520px; font-size: 17px; }
+
+footer { border-top: 1px solid var(--outline); padding: 32px 0 48px; color: var(--faint); font-size: 13px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; }
+footer a { color: var(--muted); }
+footer p { margin: 4px 0; }
+
+/* ============================================================ mockups
+   Copy of the app's look (InstallerScreen.kt): dark palette, 20dp panels,
+   gradient main button, soft buttons, status dots. Sizes are dp × ~0.82. */
+.phone {
+  --w: 300px;
+  width: var(--w); height: 620px; flex: none;
+  border-radius: 44px; padding: 10px;
+  background: linear-gradient(160deg, #2B2B35, #15151B 40%, #0E0E13);
+  box-shadow: 0 0 0 1px #3A3A46, 0 40px 80px -20px rgba(0,0,0,.85), 0 0 120px -40px rgba(14,165,233,.35);
+  position: relative;
+}
+.phone::before { content: ""; position: absolute; top: 20px; left: 50%; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: #050507; z-index: 5; box-shadow: 0 0 0 2px #1A1A22; }
+.screen {
+  position: relative; height: 100%; border-radius: 35px; overflow: hidden;
+  background: var(--bg); color: var(--text); font-size: 12px; line-height: 1.35;
+  display: flex; flex-direction: column;
+}
+.statusbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 22px 4px; font-size: 11px; font-weight: 600; color: var(--text); flex: none; }
+.statusbar .sys { display: flex; gap: 5px; align-items: center; }
+.statusbar .sys svg { width: 12px; height: 12px; }
+.scroll { flex: 1; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+
+.m-header { display: flex; align-items: center; gap: 9px; padding: 2px 2px 4px; }
+.m-header img { width: 28px; height: 28px; }
+.m-header .t { flex: 1; line-height: 1.15; }
+.m-header .t b { display: block; font-size: 14px; font-weight: 600; }
+.m-header .t small { color: var(--muted); font-size: 10px; }
+.m-act { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 8.5px; font-weight: 500; width: 34px; }
+.m-act svg { width: 15px; height: 15px; color: var(--muted); }
+
+.panel { background: var(--surface); border: 1px solid var(--outline); border-radius: 16px; padding: 13px; display: flex; flex-direction: column; gap: 9px; }
+.row { display: flex; align-items: center; gap: 9px; }
+.grow { flex: 1; min-width: 0; }
+.title { font-size: 13px; font-weight: 600; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.small { font-size: 10.5px; }
+.ok { color: var(--success); }
+.link { color: var(--link); }
+.semibold { font-weight: 600; }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile { flex: none; width: 33px; height: 33px; border-radius: 9px; display: grid; place-items: center; background: rgba(14,165,233,.12); color: var(--link); }
+.tile svg { width: 18px; height: 18px; }
+.round { flex: none; width: 33px; height: 33px; border-radius: 50%; display: grid; place-items: center; background: rgba(14,165,233,.12); color: var(--link); }
+.round svg { width: 16px; height: 16px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: none; }
+.dot.warn { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
+.dot.err { background: var(--error); }
+@keyframes pulse { 50% { opacity: .3; } }
+.status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
+.m-btn { height: 44px; border-radius: 13px; background: var(--brand); color: #fff; font-weight: 600; font-size: 13.5px; display: grid; place-items: center; }
+.m-soft { height: 39px; border-radius: 10px; background: var(--surface-high); color: var(--link); font-weight: 500; font-size: 11.5px; display: grid; place-items: center; }
+.m-links { display: flex; align-items: center; gap: 12px; font-size: 10.5px; color: var(--link); padding: 0 2px; }
+.m-links .more { margin-left: auto; color: var(--muted); }
+.m-links .more svg { width: 15px; height: 15px; display: block; }
+.switch { flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--accent); position: relative; }
+.switch::after { content: ""; position: absolute; right: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #082F49; }
+.switch.off { background: var(--surface-high); border: 1.5px solid var(--faint); }
+.switch.off::after { left: 3px; right: auto; top: 2px; width: 13px; height: 13px; background: var(--faint); }
+.chips { display: flex; gap: 6px; overflow: hidden; }
+.chip { flex: none; padding: 7px 11px; border-radius: 999px; background: var(--surface-high); font-size: 10.5px; font-weight: 500; white-space: nowrap; }
+.divider { height: 1px; background: var(--outline); }
+
+.checks { display: flex; flex-direction: column; gap: 8px; }
+.check { display: flex; gap: 9px; align-items: flex-start; }
+.check .i { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
+.check .i svg { width: 12px; height: 12px; }
+.check .i.pass { background: rgba(52,211,153,.15); color: var(--success); }
+.check .i.fail { background: rgba(248,113,113,.15); color: var(--error); }
+.check .i.later { background: rgba(125,211,252,.15); color: var(--link); }
+.check .i.todo { width: 9px; height: 9px; margin: 5px 4.5px 0; border: 1.5px solid var(--faint); }
+.check .i.run { border: 2px solid rgba(14,165,233,.25); border-top-color: var(--accent); animation: spin .9s linear infinite; width: 15px; height: 15px; margin: 2px 1.5px 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.check b { display: block; font-size: 12px; font-weight: 400; }
+.check b.strong { font-weight: 600; }
+.check small { display: block; color: var(--muted); font-size: 10px; line-height: 1.35; margin-top: 1px; }
+.check.todo b { color: var(--faint); }
+.log { border-radius: 10px; background: var(--bg); padding: 9px 10px; display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted); }
+.log span { display: inline-block; width: 10px; }
+.fixbox { border-radius: 12px; background: var(--surface-high); padding: 11px; display: flex; flex-direction: column; gap: 7px; }
+.fixbox .n { flex: none; width: 17px; height: 17px; border-radius: 50%; background: rgba(14,165,233,.15); color: var(--link); display: grid; place-items: center; font-size: 9.5px; font-weight: 700; }
+.fixbox .row { align-items: flex-start; font-size: 10.5px; }
+.ip { color: var(--link); font-weight: 600; }
+
+.bottombar { flex: none; border-top: 1px solid var(--outline); padding: 10px 14px 18px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.bar { height: 4px; border-radius: 999px; background: var(--surface-high); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); width: var(--p, 60%); }
+.bar.anim i { animation: fill 6s ease-in-out infinite; }
+@keyframes fill { 0% { width: 52%; } 80%, 100% { width: 92%; } }
+
+/* guide screens */
+.g-top { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
+.g-top .t { flex: 1; font-size: 13px; font-weight: 600; }
+.g-top .s { color: var(--muted); font-size: 11px; }
+.g-step { color: var(--muted); font-size: 10.5px; margin: -8px 2px 0; }
+.g-title { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 6px 2px 0; line-height: 1.2; }
+.g-sub { color: var(--muted); font-size: 11.5px; margin: 0 2px; }
+.g-steps { display: flex; flex-direction: column; gap: 9px; }
+.g-steps .row { align-items: flex-start; font-size: 11.5px; }
+.g-steps .n { flex: none; width: 19px; height: 19px; border-radius: 50%; background: rgba(14,165,233,.15); color: var(--link); display: grid; place-items: center; font-size: 10px; font-weight: 700; }
+.ipbox { margin: 2px 0 0 28px; border-radius: 12px; border: 1px solid rgba(14,165,233,.45); background: rgba(14,165,233,.08); padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; }
+.ipbox b { font-size: 18px; letter-spacing: .02em; font-weight: 700; }
+.ipbox span { font-size: 10px; color: var(--link); }
+.g-foot { flex: none; display: flex; gap: 8px; padding: 10px 13px 18px; border-top: 1px solid var(--outline); }
+.g-foot .back { width: 66px; height: 44px; border-radius: 13px; color: var(--text); }
+.found { display: flex; align-items: center; gap: 10px; padding: 11px; border-radius: 12px; background: var(--surface-high); border: 1px solid var(--surface-high); }
+.found.sel { border-color: var(--accent); background: rgba(14,165,233,.08); }
+.found .tile { width: 30px; height: 30px; }
+.found b { display: block; font-size: 12px; font-weight: 600; }
+.found small { color: var(--muted); font-size: 10px; }
+.plug { display: grid; place-items: center; padding: 20px 0 8px; }
+.plug svg { width: 120px; height: 90px; }
+
+/* dialog on phone */
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; padding: 16px; }
+.dialog { width: 100%; background: #1E1E27; border-radius: 22px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.dialog .title { font-size: 15px; }
+.field { border: 1px solid var(--faint); border-radius: 6px; padding: 10px 11px 9px; position: relative; font-size: 13px; }
+.field label { position: absolute; top: -7px; left: 9px; padding: 0 4px; background: #1E1E27; color: var(--link); font-size: 9.5px; }
+.field.focus { border: 2px solid var(--link); }
+.caret { display: inline-block; width: 1.5px; height: 14px; background: var(--link); vertical-align: -2px; margin-left: 1px; animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.dlg-btns { display: flex; justify-content: flex-end; gap: 16px; color: var(--link); font-weight: 600; font-size: 12px; padding-top: 4px; }
+
+/* ------------------------------------------------------------ TV mockup */
+.tv { width: 520px; }
+.tv .bezel { aspect-ratio: 16 / 9; border-radius: 10px; padding: 7px; background: #0B0B0E; box-shadow: 0 0 0 1px #2A2A33, 0 40px 80px -20px rgba(0,0,0,.9); }
+.tv .panel-screen { position: relative; height: 100%; border-radius: 4px; overflow: hidden; background: radial-gradient(120% 90% at 20% 0%, #1E3A8A 0%, #0B1530 45%, #05070F 100%); color: #fff; font-size: 11px; }
+.tv .stand { width: 34%; height: 14px; margin: 0 auto; background: linear-gradient(#1A1A20, #0D0D11); border-radius: 0 0 8px 8px; }
+.tv .stand + .base { width: 46%; height: 5px; margin: 0 auto; border-radius: 4px; background: #17171D; }
+.tv-home { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 18px 16px; }
+.tv-home .label { font-size: 10px; color: rgba(255,255,255,.7); margin-bottom: 6px; font-weight: 600; }
+.tv-row { display: flex; gap: 8px; }
+.tv-app { flex: none; width: 66px; height: 42px; border-radius: 6px; background: rgba(255,255,255,.08); display: grid; place-items: center; font-size: 9px; color: rgba(255,255,255,.6); font-weight: 600; }
+.tv-app.nuvio { width: 86px; height: 52px; margin-top: -10px; background: linear-gradient(135deg, #6D28D9, #DB2777); color: #fff; font-size: 12px; letter-spacing: .02em; box-shadow: 0 0 0 2px #fff, 0 10px 24px -6px rgba(219,39,119,.6); position: relative; }
+.tv-app.nuvio i { position: absolute; top: -7px; right: -7px; font-style: normal; font-size: 8px; padding: 2px 6px; border-radius: 999px; background: var(--success); color: #052E1C; font-weight: 700; }
+.tv-hero-text { position: absolute; left: 18px; top: 18px; }
+.tv-hero-text b { display: block; font-size: 17px; font-weight: 700; }
+.tv-hero-text span { color: rgba(255,255,255,.6); font-size: 10px; }
+.tv-dlg { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.45); }
+.tv-dlg .box { width: 62%; border-radius: 10px; background: #26262E; border: 1px solid #3A3A46; padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; box-shadow: 0 20px 40px rgba(0,0,0,.6); }
+.tv-dlg .box b { font-size: 13px; }
+.tv-dlg .opt { display: flex; gap: 6px; }
+.tv-dlg .opt span { flex: 1; text-align: center; padding: 5px 0; border-radius: 6px; background: rgba(255,255,255,.07); font-size: 10px; color: rgba(255,255,255,.65); }
+.tv-dlg .opt span.on { background: #fff; color: #111; font-weight: 700; }
+.tv-dlg .lbl { font-size: 9.5px; color: rgba(255,255,255,.65); }
+.tv-dlg .in { padding: 6px 9px; border-radius: 6px; background: #121217; border: 1.5px solid var(--link); font-size: 13px; font-weight: 700; letter-spacing: .03em; }
+.tv-dlg .btns { display: flex; gap: 6px; justify-content: flex-end; }
+.tv-dlg .btns span { padding: 4px 14px; border-radius: 6px; font-size: 10px; background: rgba(255,255,255,.08); }
+.tv-dlg .btns span.f { background: #fff; color: #111; font-weight: 700; }
+
+/* ------------------------------------------------------------ responsive */
+@media (max-width: 980px) {
+  .hero .wrap, .step, .split { grid-template-columns: 1fr; }
+  .step:nth-child(even) .step-text { order: 0; }
+  .split .stack { order: 2; }
+  .hero-visual { height: 560px; max-width: 560px; margin: 0 auto; width: 100%; }
+  .hero-visual .tv { width: 400px; }
+  .features { grid-template-columns: 1fr 1fr; }
+  .need { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+  .nav .btn { margin-left: auto; }
+}
+@media (max-width: 600px) {
+  .wrap { padding: 0 18px; }
+  .hero { padding-top: 44px; }
+  .hero-visual { height: auto; display: flex; flex-direction: column; align-items: center; }
+  .hero-visual .tv { position: relative; left: auto; top: auto; width: 100%; }
+  .hero-visual .phone { position: relative; right: auto; top: auto; margin-top: -36px; }
+  .toast { display: none; }
+  .step-visual { min-height: 0; }
+  .features { grid-template-columns: 1fr; }
+  .notif { width: 290px; transform: translateX(-50%); top: 0; }
+  section { padding: 64px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- Shared icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-tv" viewBox="0 0 24 24"><path fill="currentColor" d="M21,3H3c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h5v2h8v-2h5c1.1,0 1.99,-0.9 1.99,-2L23,5c0,-1.1 -0.9,-2 -2,-2zM21,17H3V5h18v12z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path fill="currentColor" d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></symbol>
+    <symbol id="i-theme" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18V4a8 8 0 0 1 0 16z"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path fill="currentColor" d="M7 10l5 5 5-5z"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path fill="currentColor" d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8 3 3 3-3a4.237 4.237 0 0 0-6 0zm-4-4 2 2a7.074 7.074 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><path fill="currentColor" d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path fill="currentColor" d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></symbol>
+    <symbol id="i-remote" viewBox="0 0 24 24"><path fill="currentColor" d="M15 2H9a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-3 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm-2 8h1.5v1.5H10V13zm0 3h1.5v1.5H10V16zm2.5-3H14v1.5h-1.5V13zm0 3H14v1.5h-1.5V16z"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><path fill="currentColor" d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path fill="currentColor" d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path fill="currentColor" d="M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path fill="currentColor" d="m11.99 18.54-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></symbol>
+  </defs>
+</svg>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="icon.svg" alt=""><span>TV Installer<small>for Nuvio</small></span></a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#updates">Updates</a>
+      <a href="#more">Features</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <a class="btn small js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest">Download</a>
+  </div>
+</nav>
+
+<main id="top">
+
+<!-- ============================================================ HERO -->
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow"><span class="dot"></span>Free Android app for Samsung TVs</span>
+      <h1>Nuvio on your Samsung TV, <span class="grad-text">straight from your phone.</span></h1>
+      <p class="lead">TV Installer puts Nuvio TV on your Samsung TV and keeps it updated. No computer, no Tizen Studio. About 10 minutes the first time, then updates take one tap.</p>
+      <div class="cta-row">
+        <a class="btn js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest">
+          <svg aria-hidden="true"><use href="#i-download"/></svg><span class="js-download-label">Download for Android</span>
+        </a>
+      </div>
+      <p class="cta-note">Free and open source · Android 8.0 or newer · <a href="https://github.com/pratyush997/nuvio-smart-tv-installer">Source on GitHub</a></p>
+    </div>
+
+    <div class="hero-visual">
+      <!-- TV: Nuvio just landed on the home screen -->
+      <div class="tv" role="img" aria-label="A Samsung TV home screen with the Nuvio app tile, marked New">
+        <div class="bezel"><div class="panel-screen">
+          <div class="tv-hero-text"><b>Good evening</b><span>Samsung Smart TV</span></div>
+          <div class="tv-home">
+            <div class="label">Apps</div>
+            <div class="tv-row">
+              <div class="tv-app">Live TV</div>
+              <div class="tv-app nuvio">Nuvio<i>NEW</i></div>
+              <div class="tv-app">Apps</div>
+              <div class="tv-app">Gallery</div>
+              <div class="tv-app">Music</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="stand"></div><div class="base"></div>
+      </div>
+
+      <!-- Phone: main screen with an update ready -->
+      <div class="phone" role="img" aria-label="The app's main screen: the TV is connected and the Nuvio TV card shows an Update button">
+        <div class="screen">
+          <div class="statusbar"><span>9:41</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+          <div class="scroll">
+            <div class="m-header">
+              <img src="icon.svg" alt="">
+              <div class="t"><b>TV Installer</b><small>for Nuvio</small></div>
+              <div class="m-act"><svg><use href="#i-theme"/></svg>Auto</div>
+              <div class="m-act"><svg><use href="#i-list"/></svg>Guide</div>
+              <div class="m-act"><svg><use href="#i-info"/></svg>About</div>
+            </div>
+            <div class="panel">
+              <div class="row">
+                <div class="tile"><svg><use href="#i-tv"/></svg></div>
+                <div class="grow">
+                  <div class="title ellipsis">Living room TV</div>
+                  <div class="status ellipsis"><span class="dot"></span>Connected · Tizen 6.5</div>
+                </div>
+                <div class="round"><svg><use href="#i-plus"/></svg></div>
+              </div>
+              <div class="muted small">Change IP · 192.168.1.20</div>
+            </div>
+            <div class="panel">
+              <div class="row"><span class="title grow">Nuvio TV</span><span class="ok semibold small">Recommended</span></div>
+              <div class="muted small">1.3.11 on TV · v1.3.12 is out</div>
+              <div class="m-btn">Update to v1.3.12</div>
+              <div class="m-links"><span>Open on TV</span><span>What's new</span><span>v1.3.12 ▾</span><span class="more"><svg><use href="#i-more"/></svg></span></div>
+              <div class="row">
+                <div class="grow"><div class="semibold" style="font-size:11.5px">Update Nuvio automatically</div><div class="muted" style="font-size:9.5px">Off: you get a notification when a new version is out, and tap it to update.</div></div>
+                <span class="switch off"></span>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="row"><span class="title grow">Nuvio Legacy</span><span class="muted small">Community app</span></div>
+              <div class="muted small">Not on this TV</div>
+              <div class="m-soft">Install Nuvio Legacy</div>
+            </div>
+            <div class="chips"><span class="chip">Type on TV</span><span class="chip">Certificate &amp; backup ⌄</span><span class="chip">Activity ⌄</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="toast" aria-hidden="true">
+        <span class="check"><span class="i pass" style="width:26px;height:26px"><svg style="width:16px;height:16px"><use href="#i-check"/></svg></span></span>
+        <div><b>Nuvio is on your TV</b><small>Installed in about a minute</small></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================ NEED -->
+<section style="padding-top:24px">
+  <div class="wrap">
+    <div class="need">
+      <div class="need-item"><div class="ic"><svg><use href="#i-remote"/></svg></div><div><b>A Samsung smart TV</b><span>Any Samsung TV with Tizen, and its remote.</span></div></div>
+      <div class="need-item"><div class="ic"><svg><use href="#i-wifi"/></svg></div><div><b>Same Wi‑Fi</b><span>Your phone and the TV on the same Wi‑Fi. Not a guest network.</span></div></div>
+      <div class="need-item"><div class="ic"><svg><use href="#i-person"/></svg></div><div><b>A Samsung account</b><span>It's free. You sign in once, in your browser.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ HOW -->
+<section id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="kicker">How it works</span>
+      <h2>Four steps, about 10 minutes</h2>
+      <p>The app's setup guide walks you through each one. You only do this once per TV.</p>
+    </div>
+
+    <div class="steps">
+
+      <!-- Step 1 -->
+      <div class="step">
+        <div class="step-text">
+          <div class="step-num">1</div>
+          <h3>Turn on Developer Mode on the TV</h3>
+          <p>This lets the TV accept Nuvio from your phone. Grab the TV remote:</p>
+          <ol>
+            <li>Press Home and open <b>Apps</b>.</li>
+            <li>Press <span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd></span> on the remote.</li>
+            <li>Switch Developer Mode to <b>On</b>.</li>
+            <li>In <b>Host IP</b>, type the IP the app shows you. Select <b>OK</b>.</li>
+          </ol>
+          <p>No number keys on your remote? Press the <b>123</b> button and pick the numbers on screen.</p>
+          <div class="tv tv-inline" role="img" aria-label="The TV's Developer Mode window: Developer Mode On, Host IP 192.168.1.42">
+            <div class="bezel"><div class="panel-screen">
+              <div class="tv-home" style="opacity:.35">
+                <div class="label">Apps</div>
+                <div class="tv-row"><div class="tv-app">Live TV</div><div class="tv-app">Apps</div><div class="tv-app">Gallery</div><div class="tv-app">Music</div><div class="tv-app">Web</div></div>
+              </div>
+              <div class="tv-dlg"><div class="box">
+                <b>Developer mode</b>
+                <div class="opt"><span>Off</span><span class="on">On</span></div>
+                <div class="lbl">Host IP</div>
+                <div class="in">192.168.1.42</div>
+                <div class="btns"><span class="f">OK</span><span>Cancel</span></div>
+              </div></div>
+            </div></div>
+            <div class="stand"></div><div class="base"></div>
+          </div>
+        </div>
+        <div class="step-visual">
+          <div class="phone" role="img" aria-label="Setup guide, step 3 of 6: Turn on Developer Mode, showing the phone's IP 192.168.1.42 to type on the TV">
+            <div class="screen">
+              <div class="statusbar"><span>9:41</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+              <div class="scroll">
+                <div class="g-top"><span class="t">Setup guide</span><span class="s">Close</span></div>
+                <div class="g-step">Step 3 of 6</div>
+                <div class="bar"><i style="--p:50%"></i></div>
+                <div class="g-title">Turn on Developer Mode</div>
+                <div class="g-sub">On the TV, with the TV remote. This lets the TV accept Nuvio from your phone.</div>
+                <div class="panel g-steps">
+                  <div class="row"><span class="n">1</span><span>Press Home and open Apps.</span></div>
+                  <div class="row"><span class="n">2</span><span>Press 1 2 3 4 5 on the remote. No number keys? Press the 123 button and pick the numbers on screen.</span></div>
+                  <div class="row"><span class="n">3</span><span>Switch Developer Mode to On.</span></div>
+                  <div class="row"><span class="n">4</span><span>In Host IP, type this IP address:</span></div>
+                  <div class="ipbox"><b>192.168.1.42</b><span>Copy</span></div>
+                  <div class="row"><span class="n">5</span><span>Select OK.</span></div>
+                </div>
+                <div class="panel" style="gap:4px">
+                  <div class="semibold" style="font-size:11.5px">Stop this IP address from changing</div>
+                  <div class="muted" style="font-size:10px">Your router can give this phone a new IP address some day. A quick change in this phone's Wi‑Fi settings stops that.</div>
+                  <div class="link small" style="margin-top:3px">Show me how</div>
+                </div>
+              </div>
+              <div class="g-foot"><div class="m-soft back">Back</div><div class="m-btn grow">Done, next</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step">
+        <div class="step-text">
+          <div class="step-num">2</div>
+          <h3>Restart the TV at the plug</h3>
+          <p>Developer Mode starts only after the TV loses power.</p>
+          <ol>
+            <li>Unplug the TV from power.</li>
+            <li>Wait 5 seconds.</li>
+            <li>Plug it back in and turn the TV on.</li>
+          </ol>
+          <div class="tip"><svg><use href="#i-info"/></svg><span>Turning the TV off with the remote is not enough. That only puts it to sleep.</span></div>
+        </div>
+        <div class="step-visual">
+          <div class="phone" role="img" aria-label="Setup guide, step 4 of 6: Restart the TV at the plug">
+            <div class="screen">
+              <div class="statusbar"><span>9:42</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+              <div class="scroll">
+                <div class="g-top"><span class="t">Setup guide</span><span class="s">Close</span></div>
+                <div class="g-step">Step 4 of 6</div>
+                <div class="bar"><i style="--p:67%"></i></div>
+                <div class="g-title">Restart the TV at the plug</div>
+                <div class="g-sub">Developer Mode starts only after the TV loses power.</div>
+                <div class="plug" aria-hidden="true">
+                  <svg viewBox="0 0 120 90" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="8" y="10" width="60" height="38" rx="4" stroke="#7DD3FC" stroke-width="3"/>
+                    <path d="M30 56h16" stroke="#7DD3FC" stroke-width="3"/>
+                    <path d="M38 48v8" stroke="#7DD3FC" stroke-width="3"/>
+                    <path d="M68 36 C 82 36, 80 66, 92 66" stroke="#9A9AA8" stroke-width="3"/>
+                    <rect x="92" y="58" width="14" height="16" rx="3" stroke="#9A9AA8" stroke-width="3"/>
+                    <path d="M106 62h7M106 70h7" stroke="#9A9AA8" stroke-width="3"/>
+                    <path d="M83 52 l10 -10 M93 52 l-10 -10" stroke="#FBBF24" stroke-width="3"/>
+                  </svg>
+                </div>
+                <div class="panel g-steps">
+                  <div class="row"><span class="n">1</span><span>Unplug the TV from power.</span></div>
+                  <div class="row"><span class="n">2</span><span>Wait 5 seconds.</span></div>
+                  <div class="row"><span class="n">3</span><span>Plug it back in and turn the TV on.</span></div>
+                </div>
+                <div class="muted" style="font-size:10.5px;padding:0 2px">Turning the TV off with the remote is not enough. That only puts it to sleep.</div>
+              </div>
+              <div class="g-foot"><div class="m-soft back">Back</div><div class="m-btn grow">The TV is back on</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step">
+        <div class="step-text">
+          <div class="step-num">3</div>
+          <h3>Find your TV</h3>
+          <p>Tap <b>Find my TV</b>. The app looks for Samsung TVs on your Wi‑Fi and checks the connection the moment you pick one.</p>
+          <p>Not in the list? Type its IP. On the TV: Settings › General (or Connection) › Network › Network Status › IP Settings.</p>
+          <p>If the router gives your TV a new IP one day, the app finds it again by itself.</p>
+        </div>
+        <div class="step-visual">
+          <div class="phone" role="img" aria-label="Setup guide, step 5 of 6: Find your TV. Two TVs found; Living room TV is connected">
+            <div class="screen">
+              <div class="statusbar"><span>9:43</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+              <div class="scroll">
+                <div class="g-top"><span class="t">Setup guide</span><span class="s">Close</span></div>
+                <div class="g-step">Step 5 of 6</div>
+                <div class="bar"><i style="--p:83%"></i></div>
+                <div class="g-title">Find your TV</div>
+                <div class="g-sub">Make sure the TV is on, then tap it in the list.</div>
+                <div class="panel">
+                  <div class="found sel">
+                    <div class="tile"><svg><use href="#i-tv"/></svg></div>
+                    <div class="grow"><b>Living room TV</b><small>192.168.1.20 · Developer Mode on</small></div>
+                    <span class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span></span>
+                  </div>
+                  <div class="found">
+                    <div class="tile"><svg><use href="#i-tv"/></svg></div>
+                    <div class="grow"><b>Bedroom TV</b><small>192.168.1.23</small></div>
+                  </div>
+                  <div class="row" style="font-size:12px;padding-top:2px"><span class="dot"></span>Connected to Living room TV</div>
+                </div>
+                <div class="link small" style="padding:0 2px">TV not in the list? Type its IP</div>
+              </div>
+              <div class="g-foot"><div class="m-soft back">Back</div><div class="m-btn grow">Next</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step">
+        <div class="step-text">
+          <div class="step-num">4</div>
+          <h3>Sign in with Samsung, then install</h3>
+          <p>Samsung TVs only open apps made for that TV. Tap <b>Sign in with Samsung</b>, sign in on Samsung's page, and come back. The app does the rest:</p>
+          <ol>
+            <li>Checks the phone, the TV and Developer Mode.</li>
+            <li>Downloads Nuvio and checks the file.</li>
+            <li>Signs it for your TV and installs it.</li>
+          </ol>
+          <p>It takes about a minute. You see every step as it happens. You sign in only once per TV.</p>
+        </div>
+        <div class="step-visual">
+          <div class="phone" role="img" aria-label="Install in progress: package, connection and signing done, upload at 68 percent, with a live activity list">
+            <div class="screen">
+              <div class="statusbar"><span>9:45</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+              <div class="scroll">
+                <div class="m-header">
+                  <img src="icon.svg" alt="">
+                  <div class="t"><b>TV Installer</b><small>for Nuvio</small></div>
+                  <div class="m-act"><svg><use href="#i-theme"/></svg>Auto</div>
+                  <div class="m-act"><svg><use href="#i-list"/></svg>Guide</div>
+                  <div class="m-act"><svg><use href="#i-info"/></svg>About</div>
+                </div>
+                <div class="panel">
+                  <div class="row">
+                    <div class="tile"><svg><use href="#i-tv"/></svg></div>
+                    <div class="grow"><div class="title">Living room TV</div><div class="status ellipsis"><span class="dot"></span>Connected · Tizen 6.5</div></div>
+                  </div>
+                </div>
+                <div class="panel">
+                  <div class="title">Installing Nuvio…</div>
+                  <div class="checks">
+                    <div class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span><b>Get package</b></div>
+                    <div class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span><b>Connect to TV</b></div>
+                    <div class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span><b>Sign</b></div>
+                    <div class="check"><span class="i run"></span><div class="grow"><b class="strong">Upload</b><div class="row" style="margin-top:5px"><div class="bar grow"><i style="--p:68%"></i></div><span class="muted" style="font-size:10px">68%</span></div></div></div>
+                    <div class="check todo"><span class="i todo"></span><b>Install</b></div>
+                  </div>
+                  <div class="row"><span class="muted semibold grow" style="font-size:11px">Activity</span><span class="link" style="font-size:10.5px">Show details</span></div>
+                  <div class="log">
+                    <div><span class="ok">✓</span> Samsung sign-in received.</div>
+                    <div><span class="ok">✓</span> Samsung certificate created and saved for this TV.</div>
+                    <div><span class="ok">✓</span> Connected to the TV.</div>
+                    <div><span class="faint">•</span> TV reports Tizen 6.5.</div>
+                    <div><span class="ok">✓</span> Package signed.</div>
+                    <div><span class="faint">•</span> Uploading to the TV…</div>
+                  </div>
+                </div>
+              </div>
+              <div class="bottombar">
+                <div class="row" style="font-size:11px"><span class="grow">Step 4 of 5 · Upload</span><span class="muted">68%</span></div>
+                <div class="bar anim"><i></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ UPDATES -->
+<section id="updates">
+  <div class="wrap split">
+    <div class="copy">
+      <span class="kicker" style="color:var(--accent);font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase">Updates</span>
+      <h2>New version? One tap.</h2>
+      <p>When Nuvio TV gets an update, your phone tells you. Tap the notification and the TV is updated. No sign-in, no setup again.</p>
+      <ul class="bullets">
+        <li><svg><use href="#i-check"/></svg><span><b>Or let it update by itself.</b> Turn on "Update Nuvio automatically" and new versions go on the TV when it's on and on the same Wi‑Fi.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>See what's new</b> before you update, right on the card.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Beta versions</b> are there too, marked "beta". A TV only gets betas if you pick one.</span></li>
+      </ul>
+    </div>
+    <div class="stack">
+      <div class="notif" role="img" aria-label="Phone notification: Nuvio v1.3.12 is out for Living room TV">
+        <div class="top"><img src="icon.svg" alt="">TV Installer · now</div>
+        <b>Nuvio v1.3.12 is out for "Living room TV"</b>
+        <span>Tap to update.</span>
+      </div>
+      <div class="phone" role="img" aria-label="Nuvio TV card after the update: 1.3.12 on TV, Open on TV, automatic updates on">
+        <div class="screen">
+          <div class="statusbar"><span>20:14</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+          <div class="scroll">
+            <div class="m-header">
+              <img src="icon.svg" alt="">
+              <div class="t"><b>TV Installer</b><small>for Nuvio</small></div>
+              <div class="m-act"><svg><use href="#i-theme"/></svg>Auto</div>
+              <div class="m-act"><svg><use href="#i-list"/></svg>Guide</div>
+              <div class="m-act"><svg><use href="#i-info"/></svg>About</div>
+            </div>
+            <div class="panel">
+              <div class="row">
+                <div class="tile"><svg><use href="#i-tv"/></svg></div>
+                <div class="grow"><div class="title">Living room TV</div><div class="status ellipsis"><span class="dot"></span>Connected · Tizen 6.5</div></div>
+                <span class="link small">Switch ▾</span>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="row"><span class="title grow">Nuvio TV</span><span class="ok semibold small">Recommended</span></div>
+              <div class="muted small">1.3.12 on TV</div>
+              <div class="m-btn">Open on TV</div>
+              <div class="m-links"><span>What's new</span><span>v1.3.12 ▾</span><span class="more"><svg><use href="#i-more"/></svg></span></div>
+              <div class="row">
+                <div class="grow"><div class="semibold" style="font-size:11.5px">Update Nuvio automatically</div><div class="muted" style="font-size:9.5px">New versions are installed on the TV when the TV is on and the phone is on the same Wi‑Fi. You get a notification after each update.</div></div>
+                <span class="switch"></span>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="row"><span class="title grow">Nuvio Legacy</span><span class="muted small">Community app</span></div>
+              <div class="muted small">Not on this TV</div>
+              <div class="m-soft">Install Nuvio Legacy</div>
+            </div>
+            <div class="chips"><span class="chip">Type on TV</span><span class="chip">Certificate &amp; backup ⌄</span><span class="chip">Activity ⌄</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ CHECKS -->
+<section>
+  <div class="wrap split">
+    <div class="stack">
+      <div class="phone" role="img" aria-label="Install checks stopped at Host IP, with numbered steps to fix it and a Check again button">
+        <div class="screen">
+          <div class="statusbar"><span>9:41</span><span class="sys"><svg><use href="#i-wifi"/></svg><svg><use href="#i-battery"/></svg></span></div>
+          <div class="scroll">
+            <div class="panel">
+              <div class="row"><span class="title grow">Can't install Nuvio TV yet</span><svg style="width:14px;height:14px;color:var(--muted)"><use href="#i-close"/></svg></div>
+              <div class="checks">
+                <div class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span><b>Phone on Wi‑Fi</b></div>
+                <div class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span><b>TV found</b></div>
+                <div class="check"><span class="i pass"><svg><use href="#i-check"/></svg></span><b>Developer Mode on</b></div>
+                <div class="check"><span class="i fail"><svg><use href="#i-close"/></svg></span><div><b class="strong">Host IP is this phone</b><small style="color:var(--text)">Host IP on the TV is <span class="ip">192.168.1.37</span>, but this phone is <span class="ip">192.168.1.42</span></small></div></div>
+                <div class="check todo"><span class="i todo"></span><b>TV accepts this phone</b></div>
+                <div class="check todo"><span class="i todo"></span><b>Nuvio TV file for this TV</b></div>
+                <div class="check todo"><span class="i todo"></span><b>Samsung sign-in</b></div>
+              </div>
+              <div class="fixbox">
+                <div class="semibold" style="font-size:11px">How to fix it</div>
+                <div class="row"><span class="n">1</span><span>On the TV, open Apps and press 1 2 3 4 5 on the remote.</span></div>
+                <div class="row"><span class="n">2</span><span>Change Host IP from <span class="ip">192.168.1.37</span> to <span class="ip">192.168.1.42</span>.</span></div>
+                <div class="row"><span class="n">3</span><span>Unplug the TV from power, wait 5 seconds, then plug it back in.</span></div>
+              </div>
+              <div class="m-btn">Check again</div>
+              <div class="link small" style="text-align:center">Setup guide</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="copy">
+      <span class="kicker" style="color:var(--accent);font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase">No guessing</span>
+      <h2>If something's wrong, it says what to fix.</h2>
+      <p>Before every install, the app runs 7 quick checks, one by one. It stops at the first one that fails and shows you how to fix it, step by step, with the exact numbers to type.</p>
+      <ul class="bullets">
+        <li><svg><use href="#i-check"/></svg><span><b>Phone got a new IP?</b> The most common snag. The app spots it and shows the new IP to type on the TV.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>TV got a new IP?</b> The app finds the TV again and switches by itself.</span></li>
+        <li><svg><use href="#i-check"/></svg><span><b>Still stuck?</b> Tap Report a problem. It makes a bug report with your TV IDs and e‑mail removed.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ FEATURES -->
+<section id="more">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="kicker">More in the app</span>
+      <h2>Small things that save you time</h2>
+    </div>
+    <div class="features">
+      <div class="feature"><div class="ic"><svg><use href="#i-tv"/></svg></div><b>More than one TV</b><p>Tap + to add another TV. Switch between them in one tap. Each TV gets its own update notification.</p></div>
+      <div class="feature"><div class="ic"><svg><use href="#i-keyboard"/></svg></div><b>Type on TV</b><p>Type into the TV's keyboard from your phone. Handy for searching in Nuvio or filling in sign-ins.</p></div>
+      <div class="feature"><div class="ic"><svg><use href="#i-key"/></svg></div><b>Backup made for you</b><p>The app saves a backup file to your Downloads folder. Keep it, so updates still work after you change phones. You can add a password.</p></div>
+      <div class="feature"><div class="ic"><svg><use href="#i-layers"/></svg></div><b>Nuvio Legacy, if you want it</b><p>An unofficial community version that tends to run smoother on 2018–2020 TVs. It installs next to Nuvio TV.</p></div>
+      <div class="feature"><div class="ic"><svg><use href="#i-download"/></svg></div><b>Used the desktop installer?</b><p>Import its certificate file, and the app keeps updating the Nuvio that's already on your TV.</p></div>
+      <div class="feature"><div class="ic"><svg><use href="#i-shield"/></svg></div><b>Private by design</b><p>You sign in on Samsung's own page. The app never sees your password. No analytics, no tracking.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ FAQ -->
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="kicker">FAQ</span>
+      <h2>Questions</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>Is it free?</summary>
+        <div><p>Yes. The app is free and open source (GPL-3.0). Nuvio TV is free too.</p></div>
+      </details>
+      <details>
+        <summary>Do I need a computer?</summary>
+        <div><p>No. Everything happens on your phone and your TV.</p></div>
+      </details>
+      <details>
+        <summary>Do I need a Samsung account?</summary>
+        <div><p>Yes, a free one. Samsung TVs only open apps made for that TV, and only Samsung can make that certificate. You sign in once, on Samsung's own page in your browser. The app never sees your password.</p></div>
+      </details>
+      <details>
+        <summary>It worked before, now it can't reach the TV. Why?</summary>
+        <div><p>Most often your phone got a new IP from the router. The TV only accepts the Host IP you typed in Developer Mode. The app shows you the new IP to type.</p><p>To stop this happening, give your phone a fixed IP. The app shows you how when it notices the change.</p></div>
+      </details>
+      <details>
+        <summary>Nuvio TV or Nuvio Legacy?</summary>
+        <div><p>Nuvio TV is the official app and the one we recommend. Nuvio Legacy is an unofficial rewrite by a community developer (<a href="https://github.com/iqui27/nuvio-native-legacy">iqui27/nuvio-native-legacy</a>) that can run smoother on older TVs. It needs a 2018 or newer TV. You can have both.</p></div>
+      </details>
+      <details>
+        <summary>What about LG TVs?</summary>
+        <div><p>Not supported yet. It's planned.</p></div>
+      </details>
+      <details>
+        <summary>Is this an official Nuvio or Samsung app?</summary>
+        <div><p>No. TV Installer is made by <a href="https://github.com/pratyush997">Pratyush</a>. Nuvio is made by NuvioMedia. This app does the same job as the Samsung part of the desktop <a href="https://github.com/NuvioMedia/NuvioTVSmart-Installer">Nuvio TV Installer</a>, on Android.</p></div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ FINAL CTA -->
+<section class="final">
+  <div class="wrap">
+    <img src="icon.svg" alt="">
+    <h2>Get Nuvio on your TV tonight</h2>
+    <p>Download the app, open it, and follow the guide. About 10 minutes.</p>
+    <a class="btn js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest">
+      <svg aria-hidden="true"><use href="#i-download"/></svg><span class="js-download-label">Download for Android</span>
+    </a>
+    <p class="cta-note" style="margin-top:16px">Android asks you to allow installing apps from your browser the first time.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <p>TV Installer for Nuvio · made by <a href="https://github.com/pratyush997">Pratyush</a> · <a href="https://github.com/pratyush997/nuvio-smart-tv-installer/blob/main/LICENSE">GPL-3.0</a></p>
+      <p>Nuvio is made by NuvioMedia. Not affiliated with NuvioMedia or Samsung. Screens on this page are illustrations with sample data.</p>
+    </div>
+    <div>
+      <p><a href="https://github.com/pratyush997/nuvio-smart-tv-installer">Source code</a> · <a href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases">All releases</a> · <a href="https://github.com/pratyush997/nuvio-smart-tv-installer/issues/new/choose">Report a problem</a></p>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Point the download buttons straight at the latest APK. Falls back to the releases page.
+fetch("https://api.github.com/repos/pratyush997/nuvio-smart-tv-installer/releases/latest")
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(rel => {
+    const apk = (rel.assets || []).find(a => a.name.endsWith(".apk"));
+    if (!apk) return;
+    const version = (rel.tag_name || "").replace(/^v/, "");
+    document.querySelectorAll(".js-download").forEach(a => { a.href = apk.browser_download_url; });
+    if (version) document.querySelectorAll(".js-download-label").forEach(s => { s.textContent = "Download v" + version; });
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
