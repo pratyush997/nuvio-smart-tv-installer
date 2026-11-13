@@ -310,13 +310,13 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Header(onTheme = vm::nextThemeMode, onGuide = vm::openGuide, onAbout = { aboutOpen = true })
-                vm.appUpdate?.let { update -> AppUpdateBanner(update, onDismiss = vm::dismissAppUpdate) }
+                vm.appUpdate?.let { update -> AppUpdateBanner(vm, update, onDismiss = vm::dismissAppUpdate) }
                 vm.checksApp?.let { app -> ChecklistCard(vm, app) }
                 if (working && !vm.checking) ProgressCard(vm)
                 vm.outcome?.let { outcome ->
                     OutcomeCard(
                         outcome = outcome,
-                        fixBelow = outcome.kind == OutcomeKind.ERROR && vm.ipReport?.fix != null,
+                        fixBelow = outcome.kind == OutcomeKind.ERROR && outcome.aboutTv && vm.ipReport?.fix != null,
                         onDismiss = vm::dismissOutcome,
                         onShowLog = { logOpen = true },
                         onReport = { bugReportOpen = true },
@@ -1194,11 +1194,24 @@ internal fun highlightIps(text: String): AnnotatedString = buildAnnotatedString 
     append(text.substring(last))
 }
 
-/** "A new version of this app is out", with a direct APK download. */
+/**
+ * Starts updating this app: in place when the release has an APK, else by opening the release
+ * page. Shared by the banner, the "What's new" popup and About.
+ */
 @Composable
-private fun AppUpdateBanner(update: AppUpdate, onDismiss: () -> Unit) {
+private fun rememberAppUpdater(vm: InstallerViewModel): (AppUpdate) -> Unit {
     val uri = LocalUriHandler.current
+    return { update -> if (update.apk != null) vm.updateApp(update) else uri.openUri(update.pageUrl) }
+}
+
+/** "A new version of this app is out": updates in place, showing the download as it goes. */
+@Composable
+private fun AppUpdateBanner(vm: InstallerViewModel, update: AppUpdate, onDismiss: () -> Unit) {
+    val uri = LocalUriHandler.current
+    val startUpdate = rememberAppUpdater(vm)
     var notesOpen by remember { mutableStateOf(false) }
+    val state = vm.selfUpdate
+    val busy = state is SelfUpdateState.Downloading || state is SelfUpdateState.Installing
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.Accent.copy(alpha = 0.1f))
             .border(1.dp, Palette.Accent.copy(alpha = 0.4f), RoundedCornerShape(20.dp)).padding(16.dp),
@@ -1207,23 +1220,41 @@ private fun AppUpdateBanner(update: AppUpdate, onDismiss: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("TV Installer ${update.version} is available", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text("You have ${BuildConfig.VERSION_NAME}. Download it, then open the file to update.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+                val line = when (state) {
+                    is SelfUpdateState.Downloading -> "Downloading" + (state.percent?.let { " $it%" } ?: "…")
+                    SelfUpdateState.Installing -> "Confirm the update when your phone asks."
+                    is SelfUpdateState.Failed -> state.message
+                    SelfUpdateState.Idle -> "You have ${BuildConfig.VERSION_NAME}."
+                }
+                Text(line, color = if (state is SelfUpdateState.Failed) Palette.Warning else Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
             }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Palette.Muted, modifier = Modifier.size(18.dp))
+            if (!busy) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Palette.Muted, modifier = Modifier.size(18.dp))
+                }
             }
+        }
+        if (state is SelfUpdateState.Downloading) {
+            val percent = state.percent
+            if (percent != null) LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Accent, trackColor = Palette.SurfaceHigh)
+            else LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Accent, trackColor = Palette.SurfaceHigh)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SoftButton("Download", null, enabled = true, onClick = { uri.openUri(update.downloadUrl) }, modifier = Modifier.weight(1f), tint = Palette.Link)
-            SoftButton("What's new", null, enabled = true, onClick = { notesOpen = true }, modifier = Modifier.weight(1f), tint = Palette.Muted)
+            if (state is SelfUpdateState.Failed) {
+                SoftButton("Try again", null, enabled = true, onClick = { startUpdate(update) }, modifier = Modifier.weight(1f), tint = Palette.Link)
+                SoftButton("Get it on GitHub", null, enabled = true, onClick = { uri.openUri(update.pageUrl) }, modifier = Modifier.weight(1f), tint = Palette.Muted)
+            } else {
+                SoftButton("Update", null, enabled = !busy, onClick = { startUpdate(update) }, modifier = Modifier.weight(1f), tint = Palette.Link)
+                SoftButton("What's new", null, enabled = true, onClick = { notesOpen = true }, modifier = Modifier.weight(1f), tint = Palette.Muted)
+            }
         }
     }
-    if (notesOpen) AppWhatsNewDialog(update, onDismiss = { notesOpen = false })
+    if (notesOpen) AppWhatsNewDialog(update, onUpdate = { notesOpen = false; startUpdate(update) }, onDismiss = { notesOpen = false })
 }
 
-/** Popup: what changed in the new version of this app, with the download as the one main action. */
+/** Popup: what changed in the new version of this app, with the update as the one main action. */
 @Composable
-private fun AppWhatsNewDialog(update: AppUpdate, onDismiss: () -> Unit) {
+private fun AppWhatsNewDialog(update: AppUpdate, onUpdate: () -> Unit, onDismiss: () -> Unit) {
     val uri = LocalUriHandler.current
     val lines = remember(update.tag) { ReleaseNotes.changes(update.notes) }
     Dialog(onDismissRequest = onDismiss) {
@@ -1255,7 +1286,7 @@ private fun AppWhatsNewDialog(update: AppUpdate, onDismiss: () -> Unit) {
                 else NoteLinesView(lines)
             }
             Spacer(Modifier.height(16.dp))
-            GradientButton("Download ${update.version}", enabled = true, onClick = { uri.openUri(update.downloadUrl) })
+            GradientButton("Update to ${update.version}", enabled = !SelfUpdate.busy, onClick = onUpdate)
             TextButton(onClick = { uri.openUri(update.pageUrl) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text("Open on GitHub", color = Palette.Muted, fontSize = 13.sp)
             }
@@ -1384,10 +1415,28 @@ private fun ProgressCard(vm: InstallerViewModel) {
                     step == current -> 1
                     else -> 0
                 }
-                StepRow(step.title, state, if (state == 1) vm.progressLabel else "", if (state == 1) vm.progress else null)
+                StepRow(
+                    step.title, state, if (state == 1) vm.progressLabel else "", if (state == 1) vm.progress else null,
+                    numbers = if (state == 1) vm.progressDetail else "",
+                )
             }
         } else {
-            LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Accent, trackColor = Palette.SurfaceHigh)
+            // A transfer in progress shows how far along it is and how long is left; otherwise the bar just moves.
+            val fraction = vm.progress?.takeIf { it < 1f }
+            if (fraction == null) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), color = Palette.Accent, trackColor = Palette.SurfaceHigh)
+            } else {
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                    color = Palette.Accent,
+                    trackColor = Palette.SurfaceHigh,
+                )
+                Text(
+                    listOf(vm.progressLabel, vm.progressDetail).filter { it.isNotBlank() }.joinToString(" · "),
+                    color = Palette.Muted, fontSize = 12.sp, lineHeight = 17.sp,
+                )
+            }
         }
         LiveActivity(vm)
         AnimatedVisibility(vm.waitingForLogin) {
@@ -1401,7 +1450,8 @@ private fun ProgressCard(vm: InstallerViewModel) {
                     Text("Sign in to Samsung", color = Palette.Text, fontWeight = FontWeight.SemiBold)
                 }
                 Text(
-                    "A one-time Samsung sign-in creates the certificate your TV needs. Finish it in the browser, then come back here.",
+                    if (vm.busy == BUSY_SIGN_IN_CHECK) "Finish signing in to Samsung in the browser, then come back here."
+                    else "A one-time Samsung sign-in creates the certificate your TV needs. Finish it in the browser, then come back here.",
                     color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
                 )
                 TextButton(onClick = vm::reopenLogin) { Text("Open sign-in again", color = Palette.Link) }
@@ -1412,21 +1462,27 @@ private fun ProgressCard(vm: InstallerViewModel) {
 
 /**
  * What the installer is doing right now, in plain words, newest at the bottom. "Show details"
- * adds the raw TV commands and replies.
+ * adds the raw TV commands and network requests, with their replies; it is hidden while there are none.
  */
 @Composable
 private fun LiveActivity(vm: InstallerViewModel) {
-    var details by rememberSaveable { mutableStateOf(false) }
+    var detailsOn by rememberSaveable { mutableStateOf(false) }
     val start = vm.log.indexOfLast { it.text.startsWith("── ") }.coerceAtLeast(0)
-    val lines = vm.log.drop(start + 1).filter { details || (it.level != LogLevel.COMMAND && it.level != LogLevel.OUTPUT) }
+    val job = vm.log.drop(start + 1)
+    val isDetail = { line: LogLine -> line.level == LogLevel.COMMAND || line.level == LogLevel.OUTPUT }
+    val hasDetails = job.any(isDetail)
+    val details = detailsOn && hasDetails
+    val lines = if (details) job else job.filterNot(isDetail)
     if (lines.isEmpty()) return
     val scroll = rememberScrollState()
     LaunchedEffect(lines.size, details) { scroll.animateScrollTo(scroll.maxValue) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Activity", color = Palette.Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            TextButton(onClick = { details = !details }) {
-                Text(if (details) "Hide details" else "Show details", color = Palette.Link, fontSize = 13.sp)
+            if (hasDetails) {
+                TextButton(onClick = { detailsOn = !detailsOn }) {
+                    Text(if (details) "Hide details" else "Show details", color = Palette.Link, fontSize = 13.sp)
+                }
             }
         }
         Column(
@@ -1457,7 +1513,7 @@ private fun LiveActivity(vm: InstallerViewModel) {
 
 /** state: 0 = pending, 1 = active, 2 = done */
 @Composable
-private fun StepRow(title: String, state: Int, detail: String, progress: Float?) {
+private fun StepRow(title: String, state: Int, detail: String, progress: Float?, numbers: String = "") {
     Row(verticalAlignment = Alignment.Top) {
         Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
             when (state) {
@@ -1487,6 +1543,7 @@ private fun StepRow(title: String, state: Int, detail: String, progress: Float?)
                     Spacer(Modifier.width(10.dp))
                     Text("${(progress * 100).toInt()}%", color = Palette.Muted, fontSize = 12.sp)
                 }
+                if (numbers.isNotBlank()) Text(numbers, color = Palette.Muted, fontSize = 12.sp)
             } else if (state == 1 && detail.isNotBlank()) {
                 Text(detail, color = Palette.Muted, fontSize = 12.sp)
             }
@@ -1591,7 +1648,8 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             Text(text, color = Palette.Text, fontSize = 14.sp)
         }
         CertificateExpiryNote(vm.certExpiresAt, forThisTv = vm.hasIdentityForTv)
-        vm.signInExpiresAt?.let { SignInKept(it, onForget = vm::forgetSignIn, onExpired = vm::refreshSignIn) }
+        val signedIn = vm.signInExpiresAt != null
+        vm.signInExpiresAt?.let { SignInKept(it, vm.signInEmail, onForget = vm::forgetSignIn, onExpired = vm::refreshSignIn) }
         if (vm.hasIdentityForTv) {
             Text(
                 "Installs and updates use this certificate, so no sign-in is needed. Keep the backup: without it, the TV refuses updates.",
@@ -1599,12 +1657,21 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
             )
         } else {
             Text(
-                "Samsung TVs only run apps signed for that TV. Sign in with your Samsung account once and Samsung creates the certificate. " +
-                    "(If you skip this, the sign-in happens during the first install.)",
+                if (signedIn) {
+                    "Samsung TVs only run apps signed for that TV. You're signed in to Samsung, so creating this TV's certificate needs no sign-in. " +
+                        "(If you skip this, it's created during the first install.)"
+                } else {
+                    "Samsung TVs only run apps signed for that TV. Sign in with your Samsung account once and Samsung creates the certificate. " +
+                        "(If you skip this, the sign-in happens during the first install.)"
+                },
                 color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
             )
             // Soft, not gradient: the screen has one highlighted button, and this step is optional.
-            SoftButton("Sign in with Samsung", null, enabled = enabled && connected, onClick = onSignIn, modifier = Modifier.fillMaxWidth(), tint = Palette.Link)
+            // With a saved sign-in, the same action reuses it, so the button says what actually happens.
+            SoftButton(
+                if (signedIn) "Create certificate" else "Sign in with Samsung", null,
+                enabled = enabled && connected, onClick = onSignIn, modifier = Modifier.fillMaxWidth(), tint = Palette.Link,
+            )
             if (!connected) {
                 Text(
                     "Connect to your TV above first: the certificate is made for that TV.",
@@ -1616,6 +1683,8 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
                 color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
             )
         }
+        // Subtle, and works without a TV: for checking sign-in when something seems wrong with it.
+        LinkButton("Check that Samsung sign-in works", enabled = enabled, onClick = vm::checkSignIn)
         vm.lastBackup?.let { Text("Last backup: $it", color = Palette.Faint, fontSize = 12.sp, lineHeight = 17.sp) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SoftButton("Import", null, enabled = enabled, onClick = onImport, modifier = Modifier.weight(1f))
@@ -1630,7 +1699,7 @@ private fun CertificateCard(vm: InstallerViewModel, enabled: Boolean, onImport: 
  * it is dropped.
  */
 @Composable
-private fun SignInKept(expiresAt: Instant, onForget: () -> Unit, onExpired: () -> Unit) {
+private fun SignInKept(expiresAt: Instant, email: String, onForget: () -> Unit, onExpired: () -> Unit) {
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(expiresAt) {
         while (now.isBefore(expiresAt)) {
@@ -1652,9 +1721,12 @@ private fun SignInKept(expiresAt: Instant, onForget: () -> Unit, onExpired: () -
         Icon(Icons.Filled.Lock, contentDescription = null, tint = Palette.Link, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            Text("Samsung sign-in saved · expires in $left", color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Text(
-                "Certificates for other TVs need no sign-in until then, even after closing the app. Saved encrypted on this phone only.",
+                if (email.isNotBlank()) "Signed in to Samsung as $email" else "Signed in to Samsung",
+                color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            )
+            Text(
+                "New certificates need no sign-in for the next $left, even after closing the app. Saved encrypted on this phone only.",
                 color = Palette.Muted, fontSize = 12.sp, lineHeight = 16.sp,
             )
         }
@@ -1801,6 +1873,7 @@ internal fun formatDate(instant: java.time.Instant): String =
 @Composable
 private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit, onReport: () -> Unit) {
     val uri = LocalUriHandler.current
+    val startUpdate = rememberAppUpdater(vm)
     val repo = "https://github.com/${UpdateCheck.APP_REPO}"
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1839,8 +1912,10 @@ private fun AboutDialog(vm: InstallerViewModel, onDismiss: () -> Unit, onReport:
                     AppUpdateStatus.Checking -> AboutRow("Updates", "Checking…", Palette.Muted)
                     AppUpdateStatus.UpToDate -> AboutRow("Updates", "Up to date", Palette.Success)
                     AppUpdateStatus.Failed -> AboutRow("Updates", "Couldn't check · Retry", Palette.Warning, onClick = vm::checkAppUpdate)
-                    is AppUpdateStatus.Available -> AboutRow("Updates", "${status.update.version} available · Download", Palette.Link) {
-                        uri.openUri(status.update.downloadUrl)
+                    is AppUpdateStatus.Available -> AboutRow("Updates", "${status.update.version} available · Update", Palette.Link) {
+                        // Close About so the banner's progress shows.
+                        onDismiss()
+                        startUpdate(status.update)
                     }
                 }
             }

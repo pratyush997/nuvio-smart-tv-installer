@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel.loginOpener = { url -> openBrowser(url) }
-        UpdateCheck.schedule(applicationContext)
+        UpdateCheck.schedule(applicationContext, viewModel.autoUpdate)
         if (savedInstanceState == null) handleUpdateIntent(intent)
         // Android restarts the activity when the phone switches dark/light, so reading it here is enough.
         Palette.systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -83,7 +83,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        SelfUpdate.appVisible = true
         viewModel.phoneNetworkChanged()
+        // Android's "Update this app?" screen, if it came while the app was in the background.
+        SelfUpdate.pendingConfirm?.let { confirm ->
+            SelfUpdate.pendingConfirm = null
+            runCatching { startActivity(confirm) }
+        }
+    }
+
+    override fun onPause() {
+        SelfUpdate.appVisible = false
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -92,8 +103,13 @@ class MainActivity : ComponentActivity() {
         handleUpdateIntent(intent)
     }
 
-    /** Tapping the "new version" notification starts the update straight away. */
+    /** Tapping a "new version" notification starts that update straight away. */
     private fun handleUpdateIntent(intent: Intent?) {
+        if (intent?.action == UpdateCheck.ACTION_APP_UPDATE) {
+            UpdateCheck.dismissApp(this)
+            viewModel.updateAppNow()
+            return
+        }
         if (intent?.action != UpdateCheck.ACTION_UPDATE) return
         val tvKey = intent.getStringExtra(UpdateCheck.EXTRA_TV_KEY)
         UpdateCheck.dismiss(this, tvKey)

@@ -63,6 +63,7 @@ import tv.nuvio.installer.core.SamsungTvStatus
 import tv.nuvio.installer.core.TizenInstaller
 import tv.nuvio.installer.core.TizenStudioCertificate
 import tv.nuvio.installer.core.TizenStudioPasswordException
+import tv.nuvio.installer.core.TransferMeter
 import tv.nuvio.installer.core.TvDiscovery
 import tv.nuvio.installer.core.TvInfo
 import tv.nuvio.installer.core.TvNetwork
@@ -90,8 +91,11 @@ enum class TvState { UNKNOWN, CHECKING, ONLINE, OFFLINE }
 
 enum class OutcomeKind { SUCCESS, ERROR, NEEDS_CERTIFICATE }
 
-/** A finished job's result. [app]: the app it was about, for "Uninstall from TV" on a certificate problem. */
-data class Outcome(val kind: OutcomeKind, val title: String, val message: String, val app: NuvioApp? = null)
+/**
+ * A finished job's result. [app]: the app it was about, for "Uninstall from TV" on a certificate problem.
+ * [aboutTv] is false for jobs that never talk to the TV, so their errors don't point at the TV's fix steps.
+ */
+data class Outcome(val kind: OutcomeKind, val title: String, val message: String, val app: NuvioApp? = null, val aboutTv: Boolean = true)
 
 /** The phone's address on the local network; [ip] is null when it has none. [gateway] is the router. */
 data class PhoneNetwork(val ip: String?, val prefixLength: Int, val gateway: String? = null)
@@ -130,6 +134,9 @@ private const val PREF_LEGACY_NOTICE = "legacyNoticeSeen"
 
 /** [InstallerViewModel.busy] while the install checks run. */
 const val BUSY_CHECKS = "Checking"
+
+/** [InstallerViewModel.busy] while the Samsung sign-in check runs. */
+const val BUSY_SIGN_IN_CHECK = "Sign-in check"
 
 /** Pause between checklist rows, so each tick can be seen. */
 private const val CHECK_STEP_MS = 250L
@@ -204,6 +211,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateAutoUpdate(on: Boolean) {
         autoUpdate = on
         prefs.edit().putBoolean(PREF_AUTO_UPDATE, on).apply()
+        // Checks more often while it is on (see UpdateCheck.schedule).
+        UpdateCheck.schedule(getApplication(), on)
     }
 
     var tvIp by mutableStateOf(prefs.getString("tvIp", "").orEmpty())
@@ -329,6 +338,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** A newer version of this app on GitHub, or null. */
     var appUpdate by mutableStateOf<AppUpdate?>(null)
         private set
+    /** Set when the notification asked for the update before the check had finished. Declared before init. */
+    private var updateAppWhenFound = false
     /** Result of this app's own update check, for the About popup (the banner above can be dismissed). */
     var appUpdateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Checking)
         private set
@@ -370,6 +381,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         private set
     var progress by mutableStateOf<Float?>(null)
         private set
+
+    /** The current transfer in numbers: "12.3 of 44.1 MB · 410 KB/s · about 2 min left". Empty when none. */
+    var progressDetail by mutableStateOf("")
+        private set
     var waitingForLogin by mutableStateOf(false)
         private set
     var outcome by mutableStateOf<Outcome?>(null)
@@ -388,6 +403,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** When the saved Samsung sign-in expires; null when none is saved. Declared before init, which sets it. */
     var signInExpiresAt by mutableStateOf<Instant?>(null)
+        private set
+
+    /** The Samsung account of the saved sign-in; blank when unknown or none is saved. Declared before init, too. */
+    var signInEmail by mutableStateOf("")
         private set
 
     init {
@@ -479,6 +498,40 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 else -> AppUpdateStatus.UpToDate
             }
             if (update != null && prefs.getString(PREF_APP_DISMISSED_TAG, null) != update.tag) appUpdate = update
+            if (updateAppWhenFound) {
+                updateAppWhenFound = false
+                if (update != null) updateApp(update)
+            }
+        }
+    }
+
+    /** How updating this app is going; shown in the banner. */
+    val selfUpdate: SelfUpdateState get() = SelfUpdate.state
+
+    /**
+     * Downloads [update] and asks Android to install it. Releases without an APK cannot be
+     * installed this way; the screen opens their page instead (see [AppUpdate.apk]).
+     */
+    fun updateApp(update: AppUpdate) {
+        // Show the banner even if it was dismissed: it has the progress, or the link when there is no APK.
+        appUpdate = update
+        UpdateCheck.dismissApp(getApplication())
+        if (update.apk == null || SelfUpdate.busy) return
+        // Set here, not on the background thread, so a second tap is ignored.
+        SelfUpdate.state = SelfUpdateState.Downloading(null)
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) { SelfUpdate.run(context, update) }
+    }
+
+    /** The "new version of this app" notification was tapped. */
+    fun updateAppNow() {
+        when (val status = appUpdateStatus) {
+            is AppUpdateStatus.Available -> updateApp(status.update)
+            AppUpdateStatus.Checking -> updateAppWhenFound = true
+            else -> {
+                updateAppWhenFound = true
+                checkAppUpdate()
+            }
         }
     }
 
@@ -745,10 +798,20 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             viewModelScope.launch(Dispatchers.Main) { log.add(LogLine(level, text)) }
         }
 
+        private val meter = TransferMeter()
+        private var meterLabel = ""
+
         override fun progress(label: String, done: Long, total: Long) {
+            // Measured here, on the transfer's thread, so the speed uses the real report times.
+            val detail = synchronized(meter) {
+                if (label != meterLabel) meter.reset()
+                meterLabel = label
+                meter.describe(done, total)
+            }
             viewModelScope.launch(Dispatchers.Main) {
                 progressLabel = label
                 progress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null
+                progressDetail = detail
             }
         }
 
@@ -757,6 +820,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
                 this@InstallerViewModel.stage = stage
                 progress = null
                 progressLabel = ""
+                progressDetail = ""
             }
         }
 
@@ -779,9 +843,10 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         loginOpener?.invoke(SamsungLoginServer.AUTH_URL)
     }
 
-    /** Re-reads [signInExpiresAt]; also clears it once the hour is over. */
+    /** Re-reads [signInExpiresAt] and [signInEmail]; also clears them once the sign-in expires. */
     fun refreshSignIn() {
         signInExpiresAt = samsungSession.expiresAt()
+        signInEmail = samsungSession.current()?.email.orEmpty()
     }
 
     /** Drops the kept Samsung sign-in: the next new certificate asks for a sign-in again. */
@@ -959,20 +1024,22 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         busy = label
         viewModelScope.launch {
             // After a failure, re-run the address checks so the TV card says what is wrong.
-            if (!runHeld(label, app, block)) checkTv()
+            if (!runHeld(label, app, block = block)) checkTv()
         }
     }
 
     /**
      * The work of [run], for a caller that already holds [busy] (the install checks): runs
      * [block], shows its outcome and releases [busy]. Returns false when it failed.
+     * [app] is null for jobs about no app; [aboutTv] is false for jobs that never talk to the TV.
      */
-    private suspend fun runHeld(label: String, app: NuvioApp, block: suspend () -> Outcome): Boolean {
+    private suspend fun runHeld(label: String, app: NuvioApp?, aboutTv: Boolean = true, block: suspend () -> Outcome): Boolean {
         busy = label
         outcome = null
         stage = null
         progress = null
         progressLabel = ""
+        progressDetail = ""
         log.add(LogLine(LogLevel.INFO, "── $label ──"))
         var failed = false
         try {
@@ -987,7 +1054,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             log.add(LogLine(LogLevel.ERROR, e.message.orEmpty()))
         } catch (e: Exception) {
             val text = if (e is InstallerException) e.message.orEmpty() else "${e.javaClass.simpleName}: ${e.message}"
-            outcome = Outcome(OutcomeKind.ERROR, "$label failed", text, app)
+            outcome = Outcome(OutcomeKind.ERROR, "$label failed", text, app, aboutTv)
             log.add(LogLine(LogLevel.ERROR, text))
             failed = true
         } finally {
@@ -995,6 +1062,7 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
             stage = null
             progress = null
             progressLabel = ""
+            progressDetail = ""
             waitingForLogin = false
             refreshIdentities()
         }
@@ -1192,6 +1260,26 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     /** Samsung sign-in that creates this TV's certificate now, before any install. */
     fun createCertificate(app: NuvioApp = NuvioApp.TV) {
         run("Samsung sign-in", app) { certificateOutcome(app) }
+    }
+
+    /**
+     * Checks that Samsung sign-in works on this phone, with no TV needed: a fresh sign-in, then
+     * Samsung is asked to accept it. A sign-in that works is kept, like after a normal one.
+     */
+    fun checkSignIn() {
+        if (busy != null) return
+        busy = BUSY_SIGN_IN_CHECK
+        viewModelScope.launch {
+            runHeld(BUSY_SIGN_IN_CHECK, app = null, aboutTv = false) {
+                val access = installer().checkSignIn()
+                val who = access.email.ifBlank { "your Samsung account" }
+                Outcome(
+                    OutcomeKind.SUCCESS, "Samsung sign-in works",
+                    "Signed in as $who, and Samsung accepted it. This phone can create your TV's certificate when you install.",
+                    aboutTv = false,
+                )
+            }
+        }
     }
 
     private suspend fun certificateOutcome(app: NuvioApp): Outcome {

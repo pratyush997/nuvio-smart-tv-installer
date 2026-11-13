@@ -64,10 +64,16 @@ sealed interface AutoUpdatePlan {
 }
 
 object AutoUpdate {
-    /** Tries per release before giving up and only notifying. */
+    /** Tries per release before giving up and only notifying. A TV that was off does not use one up. */
     const val MAX_ATTEMPTS = 3
 
-    /** [update] is the newer release for the TV ([ReleaseChannel.updateFor]); null when it is up to date. */
+    /** What the notification says when the TV did not answer; the next check tries again. */
+    const val TV_OFF = "the TV was off. It will try again later"
+
+    /**
+     * [update] is the newer release for the TV ([ReleaseChannel.updateFor]); null when it is up to date.
+     * [tvAwake] is false when the TV did not answer just before installing.
+     */
     fun plan(
         update: Release?,
         enabled: Boolean,
@@ -75,6 +81,7 @@ object AutoUpdate {
         onWifi: Boolean,
         hasCertificate: Boolean,
         attempts: Int,
+        tvAwake: Boolean = true,
     ): AutoUpdatePlan {
         val latest = update ?: return AutoUpdatePlan.None
         if (!enabled) return AutoUpdatePlan.Notify(latest, null)
@@ -84,6 +91,7 @@ object AutoUpdate {
             !onWifi -> "the phone was not on Wi-Fi"
             !hasCertificate -> "this TV's certificate is not saved on the phone"
             attempts >= MAX_ATTEMPTS -> "the TV could not be reached"
+            !tvAwake -> TV_OFF
             else -> null
         }
         return if (reason == null) AutoUpdatePlan.Install(latest) else AutoUpdatePlan.Notify(latest, reason)

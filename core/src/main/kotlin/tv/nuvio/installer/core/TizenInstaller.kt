@@ -284,8 +284,18 @@ class TizenInstaller(
         return identities.candidatesFor(duid).firstOrNull { it.fingerprint == identity.fingerprint } ?: identity
     }
 
-    private fun signIn(): SamsungAccess {
-        events.info("Sign in with your Samsung account to create the certificate.")
+    /**
+     * Checks that "Sign in with Samsung" works, without a TV (see [SignInCheck]). Always asks for
+     * a fresh sign-in; returns it once Samsung has accepted it.
+     */
+    fun checkSignIn(): SamsungAccess = SignInCheck.run(
+        session,
+        signIn = { signIn("Sign in with your Samsung account to check that it works.") },
+        accept = { certificates.checkAccess(it, events) },
+    ).also { events.success("Samsung accepted the sign-in for ${it.email.ifBlank { "your account" }}.") }
+
+    private fun signIn(reason: String = "Sign in with your Samsung account to create the certificate."): SamsungAccess {
+        events.info(reason)
         val server = SamsungLoginServer(returnUrl = loginReturnUrl)
         val access = server.use {
             it.start()

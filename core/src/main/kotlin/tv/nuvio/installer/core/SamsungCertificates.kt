@@ -72,6 +72,20 @@ class SamsungCertificates(private val caDirectory: File) {
         private val REQUIRED = listOf(AUTHOR_CA, PARTNER_CA, PUBLIC_CA)
         private const val MARKER = ".extension"
 
+        /** Samsung's reply to an author request, as a certificate issued by [authorCa]; throws when it is not one. */
+        internal fun checkedAuthor(reply: String, authorCa: X509Certificate): X509Certificate {
+            val cert = runCatching { parseCertificate(reply.toByteArray()) }.getOrElse {
+                throw InstallerException("Samsung did not return a valid author certificate: ${reply.take(300)}")
+            }
+            if (runCatching { cert.verify(authorCa.publicKey); true }.getOrDefault(false).not()) {
+                throw InstallerException(
+                    "Samsung issued an author certificate that does not match the downloaded certificate authorities. " +
+                        "Nothing was saved. Try again."
+                )
+            }
+            return cert
+        }
+
         fun parseCertificate(bytes: ByteArray): X509Certificate {
             val text = String(bytes, Charsets.ISO_8859_1)
             val pem = Regex("-----BEGIN CERTIFICATE-----[\\s\\S]+?-----END CERTIFICATE-----").find(text)?.value
@@ -85,7 +99,7 @@ class SamsungCertificates(private val caDirectory: File) {
     /** Makes sure Samsung's current intermediate CA certificates are available locally. */
     fun ensureAuthorities(events: InstallerEvents) {
         val repository = try {
-            latestExtensionUrl()
+            latestExtensionUrl(events)
         } catch (e: Exception) {
             if (cached()) {
                 events.info("Could not check for newer Samsung certificate authorities; using the cached ones. ${e.message}")
@@ -97,10 +111,10 @@ class SamsungCertificates(private val caDirectory: File) {
         val marker = File(caDirectory, MARKER)
         if (cached() && marker.isFile && marker.readText().trim() == repository) return
 
-        events.info("Downloading Samsung certificate authorities.")
+        events.info("Downloading Samsung's certificate files. Samsung only offers them inside a large package (about 45 MB), so this can take a few minutes. It only happens once.")
         val archive = File(caDirectory, "extension-${System.currentTimeMillis()}.zip")
         try {
-            Http.download(repository, archive, "Samsung certificate authorities", events)
+            Http.download(repository, archive, "Samsung certificate files", events)
             val addon = firstEntry(archive.readBytes(), ".zip") ?: throw InstallerException("The Samsung certificate extension did not contain an add-on package.")
             val jar = firstEntry(addon, ".jar") ?: throw InstallerException("The Samsung certificate extension did not contain a certificate manager.")
             val certs = allEntries(jar) { it.endsWith(".crt", true) || it.endsWith(".cer", true) }
@@ -116,8 +130,8 @@ class SamsungCertificates(private val caDirectory: File) {
         }
     }
 
-    private fun latestExtensionUrl(): String {
-        val xml = Http.getText(EXTENSION_INFO_URL)
+    private fun latestExtensionUrl(events: InstallerEvents): String {
+        val xml = Http.getText(EXTENSION_INFO_URL, events = events)
         val factory = DocumentBuilderFactory.newInstance()
         val doc = factory.newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
         val extensions = doc.getElementsByTagName("extension")
@@ -166,31 +180,14 @@ class SamsungCertificates(private val caDirectory: File) {
         val authorKeys = rsaKeyPair()
         val distributorKeys = rsaKeyPair()
 
-        val authorCsr = JcaPKCS10CertificationRequestBuilder(
-            X500NameBuilder(BCStyle.INSTANCE).addRDN(BCStyle.CN, "Nuvio").build(), authorKeys.public
-        ).build(JcaContentSignerBuilder("SHA512withRSA").build(authorKeys.private))
+        val authorPem = requestAuthor(access, authorKeys, events)
+        val distributorPem = requestDistributor(access, listOf(duid), distributorKeys, events)
 
-        val common = listOf("access_token" to access.accessToken, "user_id" to access.userId, "platform" to "VD")
-        val authorPem = Http.postMultipart(
-            AUTHORS_URL, common,
-            listOf(Http.FilePart("csr", "author.csr", "application/octet-stream", pem("CERTIFICATE REQUEST", authorCsr.encoded))),
-            "Samsung author certificate request"
-        )
-        val distributorPem = requestDistributor(access, listOf(duid), distributorKeys)
-
-        val authorCert = runCatching { parseCertificate(authorPem.toByteArray()) }.getOrElse {
-            throw InstallerException("Samsung did not return a valid author certificate: ${authorPem.take(300)}")
-        }
-        val distributorCert = runCatching { parseCertificate(distributorPem.toByteArray()) }.getOrElse {
-            throw InstallerException("Samsung did not return a valid distributor certificate: ${distributorPem.take(300)}")
-        }
         val authorCa = ca(AUTHOR_CA)
         val partnerCa = ca(PARTNER_CA)
-        if (runCatching { authorCert.verify(authorCa.publicKey); true }.getOrDefault(false).not()) {
-            throw InstallerException(
-                "Samsung issued an author certificate that does not match the downloaded certificate authorities. " +
-                    "The certificate was not saved; retry the install."
-            )
+        val authorCert = checkedAuthor(authorPem, authorCa)
+        val distributorCert = runCatching { parseCertificate(distributorPem.toByteArray()) }.getOrElse {
+            throw InstallerException("Samsung did not return a valid distributor certificate: ${distributorPem.take(300)}")
         }
 
         val passwordBytes = ByteArray(18).also { SecureRandom().nextBytes(it) }
@@ -225,11 +222,36 @@ class SamsungCertificates(private val caDirectory: File) {
             else "Creating one Samsung certificate for your ${duids.size} TVs, with your existing author key."
         )
         val distributorKeys = rsaKeyPair()
-        val distributorPem = requestDistributor(access, duids, distributorKeys)
+        val distributorPem = requestDistributor(access, duids, distributorKeys, events)
         return assembleDistributor(base, distributorKeys, distributorPem, duids.first(), ca(PARTNER_CA), expectedDuids = duids)
     }
 
-    private fun requestDistributor(access: SamsungAccess, duids: List<String>, keys: KeyPair): String {
+    /**
+     * Checks that Samsung accepts [access], without a TV: asks for an author certificate (which
+     * needs no TV) and checks it the way [createIdentity] does. The certificate is thrown away.
+     */
+    fun checkAccess(access: SamsungAccess, events: InstallerEvents) {
+        if (access.accessToken.isBlank() || access.userId.isBlank()) {
+            throw InstallerException("Samsung did not return valid authorization data. Try signing in again.")
+        }
+        ensureAuthorities(events)
+        events.info("Asking Samsung for a test certificate. It is not saved.")
+        checkedAuthor(requestAuthor(access, rsaKeyPair(), events), ca(AUTHOR_CA))
+    }
+
+    private fun requestAuthor(access: SamsungAccess, keys: KeyPair, events: InstallerEvents): String {
+        val csr = JcaPKCS10CertificationRequestBuilder(
+            X500NameBuilder(BCStyle.INSTANCE).addRDN(BCStyle.CN, "Nuvio").build(), keys.public
+        ).build(JcaContentSignerBuilder("SHA512withRSA").build(keys.private))
+        val common = listOf("access_token" to access.accessToken, "user_id" to access.userId, "platform" to "VD")
+        return Http.postMultipart(
+            AUTHORS_URL, common,
+            listOf(Http.FilePart("csr", "author.csr", "application/octet-stream", pem("CERTIFICATE REQUEST", csr.encoded))),
+            "Samsung author certificate request", events
+        )
+    }
+
+    private fun requestDistributor(access: SamsungAccess, duids: List<String>, keys: KeyPair, events: InstallerEvents): String {
         val names = listOf(GeneralName(GeneralName.uniformResourceIdentifier, "URN:tizen:packageid=")) +
             duids.map { GeneralName(GeneralName.uniformResourceIdentifier, "URN:tizen:deviceid=$it") }
         val extensions = ExtensionsGenerator().apply {
@@ -244,7 +266,7 @@ class SamsungCertificates(private val caDirectory: File) {
         return Http.postMultipart(
             DISTRIBUTORS_URL, common + listOf("privilege_level" to "Partner", "developer_type" to "Individual"),
             listOf(Http.FilePart("csr", "distributor.csr", "application/octet-stream", pem("CERTIFICATE REQUEST", csr.encoded))),
-            "Samsung distributor certificate request"
+            "Samsung distributor certificate request", events
         )
     }
 
