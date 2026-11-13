@@ -2,7 +2,7 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.5] - 2026-11-13
 
 ### Added
 - **The app updates itself**: tap **Update** on the "new version" banner, in its **What's new** popup or on the notification. The app downloads the new APK, checks it against the SHA-256 GitHub lists, and Android asks you to confirm. The first time, Android also asks to allow installs from this app. If it fails, **Try again** or **Get it on GitHub**.
@@ -119,6 +119,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.5.5]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.5
 [1.5.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.0
 [1.4.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.4.0
 [1.3.1]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.3.1
