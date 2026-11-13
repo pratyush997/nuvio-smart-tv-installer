@@ -20,6 +20,7 @@ It does the same job as the Samsung part of the desktop [Nuvio TV Installer](htt
 
 TV Installer for Nuvio is made by **Pratyush** ([@pratyush997](https://github.com/pratyush997)). It is free and open source under the GPL-3.0.
 
+- Website: https://pratyush997.github.io/nuvio-smart-tv-installer/
 - Source code: https://github.com/pratyush997/nuvio-smart-tv-installer
 - Download: [latest release](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest)
 - Report a problem: [issues](https://github.com/pratyush997/nuvio-smart-tv-installer/issues/new/choose)
