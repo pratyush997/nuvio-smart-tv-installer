@@ -19,7 +19,8 @@ class AutoUpdateTest {
         onWifi: Boolean = true,
         hasCertificate: Boolean = true,
         attempts: Int = 0,
-    ) = AutoUpdate.plan(latest, enabled, tvIp, onWifi, hasCertificate, attempts)
+        tvAwake: Boolean = true,
+    ) = AutoUpdate.plan(latest, enabled, tvIp, onWifi, hasCertificate, attempts, tvAwake)
 
     @Test
     fun installsANewerVersionWhenEverythingIsReady() {
@@ -45,6 +46,13 @@ class AutoUpdateTest {
         assertEquals("this TV's certificate is not saved on the phone", reason(plan(hasCertificate = false)))
         assertEquals("the release has no Samsung package", reason(plan(latest = release("v1.3.0", emptyList()))))
         assertEquals("the TV could not be reached", reason(plan(attempts = AutoUpdate.MAX_ATTEMPTS)))
+    }
+
+    @Test
+    fun waitsForTheTvToBeOn() {
+        assertEquals(AutoUpdatePlan.Notify(release("v1.3.0"), AutoUpdate.TV_OFF), plan(tvAwake = false))
+        // Off and out of tries: the tries are the reason that sticks.
+        assertEquals("the TV could not be reached", assertIs<AutoUpdatePlan.Notify>(plan(tvAwake = false, attempts = AutoUpdate.MAX_ATTEMPTS)).reason)
     }
 
     @Test

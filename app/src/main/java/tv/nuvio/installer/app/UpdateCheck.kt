@@ -19,7 +19,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import tv.nuvio.installer.core.AutoUpdate
@@ -30,6 +29,7 @@ import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.Release
 import tv.nuvio.installer.core.ReleaseChannel
 import tv.nuvio.installer.core.ReleaseNotes
+import tv.nuvio.installer.core.ReleaseAsset
 import tv.nuvio.installer.core.ReleasePackage
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SavedTv
@@ -38,6 +38,7 @@ import tv.nuvio.installer.core.ExpiryState
 import tv.nuvio.installer.core.GitHubReleases
 import tv.nuvio.installer.core.IdentityStore
 import tv.nuvio.installer.core.TizenInstaller
+import tv.nuvio.installer.core.TvNetwork
 import java.io.File
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -52,8 +53,11 @@ object TvAccess {
     fun release() = semaphore.release()
 }
 
-/** A newer release of this app. [downloadUrl] is the APK itself when the release has one; [notes] is the release body (Markdown). */
-data class AppUpdate(val tag: String, val version: String, val downloadUrl: String, val pageUrl: String, val notes: String? = null)
+/**
+ * A newer release of this app. [apk] is the release's APK, which the app downloads and installs
+ * itself; [pageUrl] is the release page, for when it cannot. [notes] is the release body (Markdown).
+ */
+data class AppUpdate(val tag: String, val version: String, val apk: ReleaseAsset?, val pageUrl: String, val notes: String? = null)
 
 sealed interface AppUpdateStatus {
     data object Checking : AppUpdateStatus
@@ -63,20 +67,19 @@ sealed interface AppUpdateStatus {
 }
 
 /**
- * Twice a day:
- * - compares the newest Nuvio release with the version last seen on the TV. With automatic
- *   updates on, installs it on the TV (never opening the Samsung sign-in); otherwise, or when
- *   that fails, notifies (tapping it opens the app and starts the update);
- * - compares this app's newest release on GitHub with the running version, and notifies when a
- *   newer one is out (tapping it downloads the APK).
+ * Every few hours (see [UpdateCheck.schedule]), compares the newest Nuvio release with the
+ * version last seen on each TV. With automatic updates on, installs it on the TV (never opening
+ * the Samsung sign-in); otherwise, or when that fails, notifies (tapping it opens the app and
+ * starts the update). Also warns about certificates running out.
+ *
+ * Retries only when the Nuvio releases could not be fetched: nothing was installed then, so a
+ * retry cannot use up a TV's automatic-update tries.
  */
 class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
         val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val nuvio = runCatching { checkNuvio(prefs) }
-        val app = runCatching { checkApp(prefs) }
         runCatching { checkCertificates(prefs) }
-        return if (nuvio.isFailure || app.isFailure) Result.retry() else Result.success()
+        return if (runCatching { checkNuvio(prefs) }.isFailure) Result.retry() else Result.success()
     }
 
     /** Warns once when a saved certificate is about to expire, and once more when it has expired. */
@@ -121,14 +124,19 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
         val duid = tv.duid
         val hasCertificate = if (duid != null) store.candidatesFor(duid).isNotEmpty() else store.all().any { it.second.isUsable }
         val attemptsKey = "$PREF_AUTO_ATTEMPTS:${tv.key}:${update.tag_name}"
-        val plan = AutoUpdate.plan(
+        fun plan(tvAwake: Boolean) = AutoUpdate.plan(
             update,
             enabled = prefs.getBoolean(PREF_AUTO_UPDATE, false),
             tvIp = tv.ip,
             onWifi = onWifi,
             hasCertificate = hasCertificate,
             attempts = prefs.getInt(attemptsKey, 0),
+            tvAwake = tvAwake,
         )
+        // Ask the TV only when everything else is ready. A TV that is off does not use up a try.
+        val plan = plan(tvAwake = true).let {
+            if (it is AutoUpdatePlan.Install && !TvNetwork.isAwake(tv.ip)) plan(tvAwake = false) else it
+        }
         val label = tv.label.takeIf { nameTv }
         when (plan) {
             AutoUpdatePlan.None -> return
@@ -198,20 +206,37 @@ class UpdateCheckWorker(context: Context, params: WorkerParameters) : Worker(con
         return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
     }
 
-    private fun checkApp(prefs: android.content.SharedPreferences) {
-        val update = UpdateCheck.newerApp() ?: return
-        if (prefs.getString(PREF_APP_NOTIFIED_TAG, null) == update.tag) return
+}
+
+/** Twice a day: notifies once per version when a newer release of this app is out (tapping it updates the app). */
+class AppUpdateWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+    override fun doWork(): Result {
+        val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val update = try {
+            UpdateCheck.newerApp() ?: return Result.success()
+        } catch (_: Exception) {
+            return Result.retry()
+        }
+        if (prefs.getString(PREF_APP_NOTIFIED_TAG, null) == update.tag) return Result.success()
         if (UpdateCheck.notifyApp(applicationContext, update)) {
             prefs.edit().putString(PREF_APP_NOTIFIED_TAG, update.tag).apply()
         }
+        return Result.success()
     }
 }
 
 object UpdateCheck {
     const val ACTION_UPDATE = "tv.nuvio.installer.action.UPDATE"
+    /** Tapping the "new version of this app" notification: opens the app and starts its update. */
+    const val ACTION_APP_UPDATE = "tv.nuvio.installer.action.APP_UPDATE"
     /** Where this app's own releases are published. */
     const val APP_REPO = "pratyush997/nuvio-smart-tv-installer"
-    private const val CHANNEL = "updates"
+    /** Separate channels, so each kind can be turned off on its own in the phone's settings. */
+    private const val CHANNEL_NUVIO = "nuvio-updates"
+    private const val CHANNEL_APP = "app-updates"
+    private const val CHANNEL_CERT = "certificate"
+    /** The one channel versions up to 1.5 used for everything. */
+    private const val OLD_CHANNEL = "updates"
     private const val NOTIFICATION_ID = 1
     private const val APP_NOTIFICATION_ID = 2
     private const val CERT_NOTIFICATION_ID = 3
@@ -221,34 +246,65 @@ object UpdateCheck {
         val latest = GitHubReleases(APP_REPO).latest() ?: return null
         if (TizenInstaller.compareVersions(current, latest.tag_name) != -1) return null
         val page = latest.html_url.ifBlank { "https://github.com/$APP_REPO/releases/latest" }
-        return AppUpdate(latest.tag_name, latest.tag_name.removePrefix("v"), latest.apkAsset?.browser_download_url ?: page, page, latest.body)
+        return AppUpdate(latest.tag_name, latest.tag_name.removePrefix("v"), latest.apkAsset, page, latest.body)
     }
 
     fun notifyApp(context: Context, update: AppUpdate): Boolean {
         if (!canNotify(context)) return false
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
-        val download = PendingIntent.getActivity(
+        val manager = channels(context)
+        val open = PendingIntent.getActivity(
             context, 1,
-            Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(context, MainActivity::class.java).setAction(ACTION_APP_UPDATE)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = Notification.Builder(context, CHANNEL)
+        val text = "You have ${BuildConfig.VERSION_NAME}. Tap to update."
+        val whatsNew = ReleaseNotes.summary(update.notes)
+        val notification = Notification.Builder(context, CHANNEL_APP)
             .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle("TV Installer ${update.version} is available")
-            .setContentText("You have ${BuildConfig.VERSION_NAME}. Tap to download the update.")
-            .setContentIntent(download)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(listOfNotNull(text, whatsNew.ifBlank { null }).joinToString("\n")))
+            .setContentIntent(open)
             .setAutoCancel(true)
             .build()
         manager.notify(APP_NOTIFICATION_ID, notification)
         return true
     }
 
-    fun schedule(context: Context) {
-        val request = PeriodicWorkRequestBuilder<UpdateCheckWorker>(12, TimeUnit.HOURS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork("update-check", ExistingPeriodicWorkPolicy.KEEP, request)
+    fun dismissApp(context: Context) {
+        context.getSystemService(NotificationManager::class.java)?.cancel(APP_NOTIFICATION_ID)
+    }
+
+    /**
+     * Nuvio is checked every 3 hours while automatic updates are on, so a check lands while the
+     * TV is on more often; every 12 hours otherwise. This app is checked every 12 hours.
+     * Call again when automatic updates are turned on or off.
+     */
+    fun schedule(context: Context, autoUpdate: Boolean) {
+        // So the three kinds show in the phone's notification settings from the first start.
+        channels(context)
+        val online = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+        val work = WorkManager.getInstance(context)
+        val nuvio = PeriodicWorkRequestBuilder<UpdateCheckWorker>(if (autoUpdate) 3L else 12L, TimeUnit.HOURS).setConstraints(online).build()
+        work.enqueueUniquePeriodicWork("update-check", ExistingPeriodicWorkPolicy.UPDATE, nuvio)
+        val app = PeriodicWorkRequestBuilder<AppUpdateWorker>(12, TimeUnit.HOURS).setConstraints(online).build()
+        work.enqueueUniquePeriodicWork("app-update-check", ExistingPeriodicWorkPolicy.KEEP, app)
+    }
+
+    /** Creates the notification channels, and removes the single one older versions used. */
+    private fun channels(context: Context): NotificationManager {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannels(listOf(
+            NotificationChannel(CHANNEL_NUVIO, "Nuvio updates", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = "A new Nuvio version is out, or was installed on your TV." },
+            NotificationChannel(CHANNEL_APP, "TV Installer updates", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = "A new version of this app is out." },
+            NotificationChannel(CHANNEL_CERT, "Certificate reminders", NotificationManager.IMPORTANCE_DEFAULT)
+                .apply { description = "Your TV's certificate is about to run out." },
+        ))
+        manager.deleteNotificationChannel(OLD_CHANNEL)
+        return manager
     }
 
     fun canNotify(context: Context): Boolean {
@@ -282,8 +338,7 @@ object UpdateCheck {
         note: String? = null, whatsNew: String = "",
     ): Boolean {
         if (!canNotify(context)) return false
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val manager = channels(context)
         val id = tvNotificationId(tv.key)
         val open = PendingIntent.getActivity(
             context, id,
@@ -292,7 +347,7 @@ object UpdateCheck {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val text = "${tvName(label).replaceFirstChar { it.uppercase() }} has $installed. Tap to update it."
-        val notification = Notification.Builder(context, CHANNEL)
+        val notification = Notification.Builder(context, CHANNEL_NUVIO)
             .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle(if (label != null) "Nuvio $latest is out for \"$label\"" else "Nuvio $latest is out")
             .setContentText(text)
@@ -306,15 +361,14 @@ object UpdateCheck {
 
     fun notifyAutoUpdated(context: Context, tv: SavedTv, label: String?, from: String, to: String): Boolean {
         if (!canNotify(context)) return false
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val manager = channels(context)
         val id = tvNotificationId(tv.key)
         val open = PendingIntent.getActivity(
             context, id,
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = Notification.Builder(context, CHANNEL)
+        val notification = Notification.Builder(context, CHANNEL_NUVIO)
             .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle("Nuvio $to is on ${tvName(label)}")
             .setContentText("Updated automatically from $from.")
@@ -327,15 +381,14 @@ object UpdateCheck {
 
     fun notifyCertificate(context: Context, expiresAt: Instant, expired: Boolean): Boolean {
         if (!canNotify(context)) return false
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val manager = channels(context)
         val open = PendingIntent.getActivity(
             context, 2,
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val date = formatDate(expiresAt)
-        val notification = Notification.Builder(context, CHANNEL)
+        val notification = Notification.Builder(context, CHANNEL_CERT)
             .setSmallIcon(R.drawable.ic_stat_update)
             .setContentTitle(if (expired) "Your TV's certificate expired on $date" else "Your TV's certificate expires on $date")
             .setContentText("Tap to see what this means for Nuvio updates.")

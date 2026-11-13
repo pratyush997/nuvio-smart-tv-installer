@@ -2,6 +2,21 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **The app updates itself**: tap **Update** on the "new version" banner, in its **What's new** popup or on the notification. The app downloads the new APK, checks it against the SHA-256 GitHub lists, and Android asks you to confirm. The first time, Android also asks to allow installs from this app. If it fails, **Try again** or **Get it on GitHub**.
+- **Check that Samsung sign-in works**: a link on the Signing certificate card. It works without a TV: you sign in, then the app asks Samsung for a test certificate (thrown away) to check that Samsung accepts the sign-in. If it works, the sign-in is kept, as after a normal sign-in. If not, the message says whether the sign-in did not finish or Samsung refused it.
+- Downloads show how far along they are and how long is left ("12.3 of 44.1 MB · 410 KB/s · about 2 min left"), in every job, not only installs.
+- **Show details** in the activity now also lists each network request (address, reply, size, time taken). It never shows sign-in tokens. When a job has nothing extra to show, the button is hidden.
+
+### Changed
+- **Automatic updates wait for the TV**: before installing, the app checks that the TV is on. A TV that is off no longer uses up one of the 3 tries; the notification says "the TV was off. It will try again later". With automatic updates on, Nuvio is checked every 3 hours instead of every 12, so a check lands while the TV is on more often.
+- Notifications are split into three kinds: **Nuvio updates**, **TV Installer updates** and **Certificate reminders**. Each can be turned off on its own in the phone's settings. The app's own update notification now shows what's new.
+- When the Samsung sign-in times out, the message now says "Try again" instead of "Start the install again", since it can also happen outside an install.
+- While a Samsung sign-in is saved, the certificate card says who is signed in, explains that no sign-in is needed, and its button reads **Create certificate** instead of **Sign in with Samsung**.
+- Before downloading Samsung's certificate files for the first time, the activity says the package is large (about 45 MB) and that this only happens once.
+
 ## [1.5.0] - 2026-11-12
 
 ### Added

@@ -32,11 +32,28 @@ internal object Http {
         return inputStream.use { it.readBytes() }
     }
 
-    fun getText(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 30_000): String {
+    /**
+     * Runs one request for the details log: "› GET url", then the reply ("HTTP 200 · 2 KB in 0.4 s")
+     * or why it failed. Only the method and URL are written, never headers or the body (tokens).
+     */
+    private fun traced(events: InstallerEvents?, method: String, url: String, request: () -> ByteArray, connection: HttpURLConnection): ByteArray {
+        events?.command("$method $url")
+        val started = System.currentTimeMillis()
+        val body = try {
+            request()
+        } catch (e: Exception) {
+            events?.output("Failed after ${Transfer.took(System.currentTimeMillis() - started)}: ${e.message}")
+            throw e
+        }
+        events?.output("HTTP ${connection.responseCode} · ${Transfer.bytes(body.size.toLong())} in ${Transfer.took(System.currentTimeMillis() - started)}")
+        return body
+    }
+
+    fun getText(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 30_000, events: InstallerEvents? = null): String {
         val connection = open(url, timeoutMs)
         headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
         try {
-            return String(connection.bodyOrThrow("Request to $url"), Charsets.UTF_8)
+            return String(traced(events, "GET", url, { connection.bodyOrThrow("Request to $url") }, connection), Charsets.UTF_8)
         } finally {
             connection.disconnect()
         }
@@ -66,11 +83,14 @@ internal object Http {
     private fun downloadOnce(url: String, target: File, label: String, events: InstallerEvents, headers: Map<String, String>) {
         val connection = open(url, 60_000)
         headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
+        events.command("GET $url")
+        val started = System.currentTimeMillis()
         try {
             val code = connection.responseCode
+            val total = connection.contentLengthLong
+            events.output(if (total > 0) "HTTP $code · ${Transfer.bytes(total)} to download" else "HTTP $code")
             if (code in 500..599 || code == 429) throw RetryableException("HTTP $code")
             if (code !in 200..299) throw InstallerException("Download failed: HTTP $code for ${url.substringAfterLast('/')}")
-            val total = connection.contentLengthLong
             target.parentFile?.mkdirs()
             val temp = File(target.path + ".part")
             connection.inputStream.use { input ->
@@ -89,6 +109,8 @@ internal object Http {
                         }
                     }
                     events.progress(label, done, if (total > 0) total else done)
+                    val took = (System.currentTimeMillis() - started).coerceAtLeast(1)
+                    events.output("Downloaded ${Transfer.bytes(done)} in ${Transfer.took(took)} (${Transfer.speed(done * 1_000.0 / took)})")
                 }
             }
             if (target.exists()) target.delete()
@@ -100,7 +122,7 @@ internal object Http {
 
     class FilePart(val name: String, val fileName: String, val contentType: String, val data: ByteArray)
 
-    fun postMultipart(url: String, fields: List<Pair<String, String>>, files: List<FilePart>, what: String): String {
+    fun postMultipart(url: String, fields: List<Pair<String, String>>, files: List<FilePart>, what: String, events: InstallerEvents? = null): String {
         val boundary = "----NuvioBoundary" + UUID.randomUUID().toString().replace("-", "")
         val body = ByteArrayOutputStream()
         fun line(text: String) = body.write((text + "\r\n").toByteArray(Charsets.UTF_8))
@@ -127,8 +149,11 @@ internal object Http {
             connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
             val bytes = body.toByteArray()
             connection.setFixedLengthStreamingMode(bytes.size)
-            connection.outputStream.use { it.write(bytes) }
-            return String(connection.bodyOrThrow(what), Charsets.UTF_8)
+            val reply = traced(events, "POST", url, {
+                connection.outputStream.use { it.write(bytes) }
+                connection.bodyOrThrow(what)
+            }, connection)
+            return String(reply, Charsets.UTF_8)
         } finally {
             connection.disconnect()
         }

@@ -73,6 +73,22 @@ object TvNetwork {
     }
 
     /**
+     * True when the TV at [ip] is on: its info port or its developer (install) port takes a
+     * connection. Either is enough, since installing only needs the developer port.
+     */
+    fun isAwake(ip: String, timeoutMs: Int = 2500, ports: List<Int> = listOf(INFO_PORT, SdbClient.DEFAULT_PORT)): Boolean =
+        ports.any { port ->
+            try {
+                Socket().use { it.connect(InetSocketAddress(ip.trim(), port), timeoutMs) }
+                true
+            } catch (_: IOException) {
+                false
+            } catch (_: IllegalArgumentException) {
+                false
+            }
+        }
+
+    /**
      * Asks the TV's info port who it is and how Developer Mode is set. Returns null when nothing
      * answered at [ip]. Uses a plain socket: this is cleartext HTTP on the local network.
      * [connectTimeoutMs] can be shorter than [timeoutMs] when scanning many addresses.
