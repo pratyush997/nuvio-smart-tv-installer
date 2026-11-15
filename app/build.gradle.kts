@@ -26,8 +26,8 @@ android {
         applicationId = "tv.nuvio.installer.tizen"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.5.5"
+        versionCode = 9
+        versionName = "1.6.0"
     }
 
     signingConfigs {
