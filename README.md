@@ -85,6 +85,7 @@ Samsung TVs only accept an update signed with the same certificate as the first 
 
 ## More in the app
 
+- **Another app**: install any Samsung TV app file (`.wgt` or `.tpk`) you have on your phone. Tap **Choose a file** on the **Another app** card, then **Install on TV**. The app signs it with your TV's certificate, the same way it signs Nuvio. It doesn't check what the app does, so only install files from people you trust. A Nuvio TV or Nuvio Legacy file goes to its own card instead.
 - **Type on TV**: type into the TV's on-screen keyboard from your phone, for searching in Nuvio or filling in sign-ins. This works without Developer Mode. The first time, choose **Allow** on the TV.
 - **Report a problem** (About, and on every error): makes a bug report with TV IDs, tokens and e-mail addresses removed. Check it, then open it as a GitHub issue or copy it.
 - **Light mode**: follows the phone. The button next to **Guide** switches between Auto, Light and Dark.
@@ -100,7 +101,7 @@ Every install or update runs these checks first, one by one, and stops at the fi
 | A Samsung TV answers at that IP | Turn the TV on; check the IP |
 | Developer Mode is on | Apps › `1 2 3 4 5` › Developer Mode On, then restart at the plug |
 | Host IP matches the phone | Change Host IP to the phone's current IP, then restart at the plug |
-| There is a file for this TV | Nuvio Legacy needs a 2018 or newer TV (Tizen 4 or later); pick another version if a release has no file for your TV |
+| There is a file for this TV | Nuvio Legacy needs a 2018 or newer TV (Tizen 4 or later); pick another version if a release has no file for your TV. For **Another app**: the file says which Tizen version it needs, and the TV must have that or newer |
 | Samsung sign-in | Nothing to do: Samsung's page opens during the install. If the TV needs a certificate this phone doesn't have, import it or uninstall Nuvio from the TV |
 
 The most common cause of "it stopped working" is the phone getting a new IP from the router. The TV only accepts connections from the Host IP you typed. Reserving a fixed IP for your phone in the router settings avoids this; the app suggests it, with a link to the router's page, when it sees the phone's IP change.
@@ -117,10 +118,10 @@ The app remembers your TV. When the router gives the TV a new IP, the app finds 
 
 ## How it works
 
-1. Downloads the Nuvio TV `.wgt` (or the Nuvio Legacy `.tpk` for your TV's Tizen version) from GitHub releases and checks its SHA-256 against the one GitHub lists.
+1. Downloads the Nuvio TV `.wgt` (or the Nuvio Legacy `.tpk` for your TV's Tizen version) from GitHub releases and checks its SHA-256 against the one GitHub lists. For **Another app**, it copies the file you picked and reads its name, ids and version; ids and versions that don't look like Samsung's are refused.
 2. Connects to the TV over SDB (port 26101), reads the TV's DUID, Tizen version and installed apps.
 3. Creates a Samsung author certificate, plus a distributor certificate that lists all your TVs (first install, or when you add a TV).
-4. Signs the package (Tizen XML-DSig), uploads it and runs the TV's installer.
+4. Signs the package (Tizen XML-DSig), replacing any signatures already in it, uploads it and runs the TV's installer.
 5. Reads the installed app list back to confirm the version.
 
 ## Build from source
@@ -163,6 +164,8 @@ The CLI:
 ```sh
 ./gradlew :cli:run --args="probe 192.168.1.20"
 ./gradlew :cli:run --args="install 192.168.1.20 path/to/Nuvio.wgt"
+./gradlew :cli:run --args="inspect path/to/Other.wgt"
+./gradlew :cli:run --args="install 192.168.1.20 path/to/Other.wgt any"
 ```
 
 The TV only accepts connections from its Host IP, so set that to your computer's IP when using the CLI.

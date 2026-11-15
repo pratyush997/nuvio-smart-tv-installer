@@ -33,42 +33,63 @@ object TizenSigner {
 
     class Entry(val name: String, val data: ByteArray)
 
-    /** Signs [input] with the author and distributor identities and writes the result to [output]. */
-    fun signWgt(input: File, output: File, author: KeyAndChain, distributor: KeyAndChain) {
-        val files = ZipFile(input).use { zip ->
-            zip.entries().asSequence()
-                .filter { !it.isDirectory && it.name != AUTHOR_SIGNATURE && it.name != DISTRIBUTOR_SIGNATURE }
-                .map { entry -> Entry(entry.name, zip.getInputStream(entry).use { it.readBytes() }) }
-                .toList()
-        }
-        val authorXml = signatureXml("AuthorSignature", files, author)
-        val withAuthor = listOf(Entry(AUTHOR_SIGNATURE, authorXml)) + files
-        val distributorXml = signatureXml("DistributorSignature", withAuthor, distributor)
-        val signed = listOf(Entry(DISTRIBUTOR_SIGNATURE, distributorXml)) + withAuthor
+    /** A file in the package and its SHA-512 digest (base64), as listed in a signature. */
+    private class Digest(val name: String, val sha512: String)
 
-        output.parentFile?.mkdirs()
-        ZipOutputStream(FileOutputStream(output)).use { zip ->
-            val folders = HashSet<String>()
-            for (entry in signed) {
-                // Mirror JSZip's createFolders behaviour: parent folders precede their files.
-                val parts = entry.name.split('/')
-                for (i in 1 until parts.size) {
-                    val folder = parts.subList(0, i).joinToString("/") + "/"
-                    if (folders.add(folder)) {
-                        zip.putNextEntry(ZipEntry(folder))
-                        zip.closeEntry()
+    /**
+     * Signatures left in the package by whoever signed it before: author-signature.xml and
+     * every distributor signature (signature1.xml, signature2.xml, …) at the top of the zip.
+     */
+    private val OLD_SIGNATURE = Regex("^(author-signature|signature[1-9][0-9]*)\\.xml$")
+
+    fun isOldSignature(name: String): Boolean = OLD_SIGNATURE.matches(name)
+
+    /**
+     * Signs [input] with the author and distributor identities and writes the result to [output].
+     * Files are read twice from the zip (once to hash, once to copy), so only one file's buffer
+     * is in memory at a time, whatever the package's size.
+     */
+    fun signWgt(input: File, output: File, author: KeyAndChain, distributor: KeyAndChain) {
+        ZipFile(input).use { zip ->
+            val entries = zip.entries().asSequence().filter { !it.isDirectory && !isOldSignature(it.name) }.toList()
+            val digests = entries.map { entry -> Digest(entry.name, zip.getInputStream(entry).use(::sha512Base64)) }
+            val authorXml = signatureXml("AuthorSignature", digests, author)
+            val withAuthor = listOf(Digest(AUTHOR_SIGNATURE, sha512Base64(authorXml))) + digests
+            val distributorXml = signatureXml("DistributorSignature", withAuthor, distributor)
+
+            output.parentFile?.mkdirs()
+            ZipOutputStream(FileOutputStream(output).buffered()).use { out ->
+                val folders = HashSet<String>()
+                fun start(name: String) {
+                    // Mirror JSZip's createFolders behaviour: parent folders precede their files.
+                    val parts = name.split('/')
+                    for (i in 1 until parts.size) {
+                        val folder = parts.subList(0, i).joinToString("/") + "/"
+                        if (folders.add(folder)) {
+                            out.putNextEntry(ZipEntry(folder))
+                            out.closeEntry()
+                        }
                     }
+                    out.putNextEntry(ZipEntry(name))
                 }
-                zip.putNextEntry(ZipEntry(entry.name))
-                zip.write(entry.data)
-                zip.closeEntry()
+                start(DISTRIBUTOR_SIGNATURE); out.write(distributorXml); out.closeEntry()
+                start(AUTHOR_SIGNATURE); out.write(authorXml); out.closeEntry()
+                for (entry in entries) {
+                    start(entry.name)
+                    zip.getInputStream(entry).use { it.copyTo(out) }
+                    out.closeEntry()
+                }
             }
         }
     }
 
-    fun signatureXml(id: String, files: List<Entry>, key: KeyAndChain): ByteArray {
+    fun signatureXml(id: String, files: List<Entry>, key: KeyAndChain): ByteArray =
+        signatureXml(id, files.map { Digest(it.name, sha512Base64(it.data)) }, key)
+
+    @JvmName("signatureXmlFromDigests")
+    private fun signatureXml(id: String, files: List<Digest>, key: KeyAndChain): ByteArray {
         val references = StringBuilder()
-        for (file in files) references.append(reference(sha512Base64(file.data), encodeUriComponent(file.name), false))
+        for (file in files) references.append(reference(file.sha512, encodeUriComponent(file.name), false))
         references.append(reference(if (id == "AuthorSignature") AUTHOR_PROP_DIGEST else DISTRIBUTOR_PROP_DIGEST, "#prop", true))
 
         val signedInfo = "<SignedInfo>\n" +
@@ -125,6 +146,17 @@ object TizenSigner {
 
     private fun sha512Base64(data: ByteArray): String =
         Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-512").digest(data))
+
+    private fun sha512Base64(input: java.io.InputStream): String {
+        val digest = MessageDigest.getInstance("SHA-512")
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            digest.update(buffer, 0, read)
+        }
+        return Base64.getEncoder().encodeToString(digest.digest())
+    }
 
     /** Equivalent of JavaScript `s.replace(/(.{76})/g, '$1\n')`. */
     internal fun wrap76(value: String): String {
