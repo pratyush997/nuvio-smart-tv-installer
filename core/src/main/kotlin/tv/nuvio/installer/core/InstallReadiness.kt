@@ -14,13 +14,16 @@ enum class ReadyCheck {
     SIGN_IN;
 
     /** The row's title in the checklist for installing [app]. */
-    fun title(app: NuvioApp): String = when (this) {
+    fun title(app: NuvioApp): String = title(InstallTarget.Known(app))
+
+    /** The row's title in the checklist for installing [target]. */
+    fun title(target: InstallTarget): String = when (this) {
         WIFI -> "Phone on Wi-Fi"
         TV -> "TV found"
         DEVELOPER_MODE -> "Developer Mode on"
         HOST_IP -> "Host IP is this phone"
         CONNECTION -> "TV accepts this phone"
-        PACKAGE -> "${app.label} file for this TV"
+        PACKAGE -> if (target is InstallTarget.Custom) "File works on this TV" else "${target.label} file for this TV"
         SIGN_IN -> "Samsung sign-in"
     }
 }
@@ -92,9 +95,23 @@ object InstallReadiness {
         }
     }
 
+    /**
+     * Row 6 for an app from a picked file: it was read when it was picked, so only its minimum
+     * Tizen version is left to compare with the TV's [tizen].
+     */
+    fun customPackageRow(info: PackageInfo, tizen: String?): ReadyResult {
+        val needs = info.metadata.requiredVersion
+        val tooOld = !tizen.isNullOrBlank() && needs.isNotBlank() && (TizenInstaller.compareVersions(tizen, needs) ?: 0) < 0
+        if (tooOld) return ReadyResult(ReadyCheck.PACKAGE, ReadyState.FAIL, "${info.label} needs Tizen $needs or newer. This TV has Tizen $tizen.")
+        return ReadyResult(ReadyCheck.PACKAGE, ReadyState.PASS, listOf(info.label, info.metadata.version).filter { it.isNotBlank() }.joinToString(" "))
+    }
+
     /** Row 7, from the certificate check for [app] on this TV. */
-    fun signInRow(preflight: Preflight, app: NuvioApp): ReadyResult = when {
-        preflight.blocked != null -> ReadyResult(ReadyCheck.SIGN_IN, ReadyState.FAIL, "This TV needs the certificate ${app.label} was installed with")
+    fun signInRow(preflight: Preflight, app: NuvioApp): ReadyResult = signInRow(preflight, InstallTarget.Known(app))
+
+    /** Row 7, from the certificate check for [target] on this TV. */
+    fun signInRow(preflight: Preflight, target: InstallTarget): ReadyResult = when {
+        preflight.blocked != null -> ReadyResult(ReadyCheck.SIGN_IN, ReadyState.FAIL, "This TV needs the certificate ${target.label} was installed with")
         preflight.usable.isNotEmpty() -> ReadyResult(ReadyCheck.SIGN_IN, ReadyState.PASS, "Already done for this TV")
         else -> ReadyResult(ReadyCheck.SIGN_IN, ReadyState.LATER, "Samsung's page opens during the install")
     }

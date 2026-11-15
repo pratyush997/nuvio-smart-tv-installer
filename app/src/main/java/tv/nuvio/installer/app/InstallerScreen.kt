@@ -124,6 +124,8 @@ import tv.nuvio.installer.core.FoundTv
 import tv.nuvio.installer.core.InstallStage
 import tv.nuvio.installer.core.IpReport
 import tv.nuvio.installer.core.LogLevel
+import tv.nuvio.installer.core.InstallTarget
+import tv.nuvio.installer.core.TizenInstaller
 import tv.nuvio.installer.core.NuvioApp
 import tv.nuvio.installer.core.Fix
 import tv.nuvio.installer.core.MainAction
@@ -297,6 +299,10 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
         if (uri != null && app != null) vm.selectFile(app, uri)
         pickingFor = null
     }
+    // Any .wgt or .tpk: read right away, so a wrong file is refused before any checks run.
+    val pickOtherApp = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.pickCustomFile(uri)
+    }
 
     // Mobile-first: one column sized for phones; on larger screens the same column is centred.
     Column(Modifier.fillMaxSize().background(Palette.Background)) {
@@ -321,13 +327,14 @@ fun InstallerScreen(vm: InstallerViewModel, copy: (String) -> Unit) {
                         onShowLog = { logOpen = true },
                         onReport = { bugReportOpen = true },
                         onImport = { importCert.launch(arrayOf("*/*")) },
-                        onUninstall = { vm.uninstall(outcome.app ?: NuvioApp.TV) },
+                        onUninstall = { vm.uninstall(outcome.target ?: InstallTarget.Known(NuvioApp.TV)) },
                     )
                 }
                 TvCard(vm)
                 NuvioApp.entries.forEach { app ->
                     AppCard(vm, app, onPickFile = { pickingFor = app; pickPackage.launch(arrayOf("*/*")) })
                 }
+                OtherAppCard(vm, onPickFile = { pickOtherApp.launch(arrayOf("*/*")) })
                 MoreRow(
                     vm,
                     certOpen = certOpen,
@@ -371,7 +378,7 @@ private fun BottomBar(vm: InstallerViewModel) {
             val done: Float
             val text: String
             if (vm.checking) {
-                val app = vm.checksApp ?: NuvioApp.TV
+                val app = vm.checksApp ?: InstallTarget.Known(NuvioApp.TV)
                 val current = vm.checkRunning ?: ReadyCheck.entries[vm.checks.size.coerceAtMost(ReadyCheck.entries.size - 1)]
                 total = ReadyCheck.entries.size
                 done = vm.checks.size + 0.5f
@@ -730,6 +737,116 @@ private fun AppCard(vm: InstallerViewModel, app: NuvioApp, onPickFile: () -> Uni
     }
 }
 
+/**
+ * "Another app": install any .wgt or .tpk file from the phone. No file yet: Choose a file. A file
+ * picked: what it is, then Install on TV, or Open on TV once it is there. Never the highlighted button.
+ */
+@Composable
+private fun OtherAppCard(vm: InstallerViewModel, onPickFile: () -> Unit) {
+    val busy = vm.busy != null || vm.readingFile
+    val online = vm.tvState == TvState.ONLINE
+    val info = vm.customApp
+    val target = vm.customTarget
+    val installed = online && target != null && vm.isInstalled(target)
+    var notice by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+    // The first install of another app says what the installer does and does not check.
+    val install = { if (target != null) { if (vm.customNoticeSeen) vm.install(target) else notice = true } }
+
+    Panel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Another app", color = Palette.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("Your own file", color = Palette.Muted, fontSize = 12.sp)
+        }
+        if (info == null || target == null) {
+            Text("Have a TV app file (.wgt or .tpk) on this phone? Install it on your TV.", color = Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            SoftButton(
+                if (vm.readingFile) "Reading the file…" else "Choose a file", null, enabled = !busy, onClick = onPickFile,
+                modifier = Modifier.fillMaxWidth(), tint = Palette.Link,
+            )
+            return@Panel
+        }
+        Column(Modifier.alpha(if (online) 1f else 0.6f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(info.label, color = Palette.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(
+                listOfNotNull(
+                    info.metadata.version.takeIf { it.isNotBlank() }?.let { "Version $it" },
+                    fileSize(info.size),
+                    ".${info.kind.extension} file",
+                ).joinToString(" · "),
+                color = Palette.Muted, fontSize = 13.sp,
+            )
+            val tizen = vm.tvInfo?.platformVersion
+            val needs = info.metadata.requiredVersion
+            val tooOld = online && !tizen.isNullOrBlank() && needs.isNotBlank() && (TizenInstaller.compareVersions(tizen, needs) ?: 0) < 0
+            Text(
+                when {
+                    !online -> "Connect your TV first"
+                    tooOld -> "Needs Tizen $needs or newer. This TV has Tizen $tizen."
+                    installed -> "On this TV"
+                    else -> "Not on this TV"
+                },
+                color = if (tooOld) Palette.Warning else Palette.Muted, fontSize = 13.sp, lineHeight = 18.sp,
+            )
+        }
+        if (online) {
+            SoftButton(
+                if (installed) "Open on TV" else "Install on TV", null, enabled = !busy,
+                onClick = if (installed) ({ vm.launchOnTv(target) }) else install,
+                modifier = Modifier.fillMaxWidth(), tint = Palette.Link,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                LinkButton(if (vm.readingFile) "Reading the file…" else "Choose another file", enabled = !busy, onClick = onPickFile)
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, enabled = !busy) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More for ${info.label}", tint = Palette.Muted)
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (installed) DropdownMenuItem(text = { Text("Reinstall") }, onClick = { menuOpen = false; install() })
+                    if (installed) DropdownMenuItem(text = { Text("Uninstall") }, onClick = { menuOpen = false; vm.uninstall(target) })
+                    DropdownMenuItem(text = { Text("Remove from this card") }, onClick = { menuOpen = false; vm.forgetCustomApp() })
+                }
+            }
+        }
+    }
+    if (notice && target != null) {
+        CustomAppNoticeDialog(
+            name = target.label,
+            onContinue = { notice = false; vm.acknowledgeCustomNotice(); vm.install(target) },
+            onDismiss = { notice = false },
+        )
+    }
+}
+
+/** "12.3 MB", or "640 KB" for small files. */
+private fun fileSize(bytes: Long): String = when {
+    bytes >= 1_000_000 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_000_000.0)
+    else -> "${(bytes / 1000).coerceAtLeast(1)} KB"
+}
+
+/** Shown once, before the first install of another app: what the installer does with the file, and what it doesn't check. */
+@Composable
+private fun CustomAppNoticeDialog(name: String, onContinue: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Only install apps you trust") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "TV Installer signs this file with your TV's certificate and puts it on the TV. It doesn't check what the app does.",
+                    fontSize = 14.sp, lineHeight = 20.sp,
+                )
+                Text("Install files only from people you trust.", fontSize = 14.sp, lineHeight = 20.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = onContinue) { Text("Install $name", fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 /** A small text button for the links under an app's main button. */
 @Composable
 private fun LinkButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
@@ -742,7 +859,7 @@ private fun LinkButton(text: String, enabled: Boolean = true, onClick: () -> Uni
 
 /** The install checks for [app], one row each; on a failure, how to fix it and Check again. */
 @Composable
-private fun ChecklistCard(vm: InstallerViewModel, app: NuvioApp) {
+private fun ChecklistCard(vm: InstallerViewModel, app: InstallTarget) {
     val failed = vm.failedCheck.takeIf { !vm.checking }
     Panel {
         SectionTitle(if (failed != null) "Can't install ${app.label} yet" else "Getting ready…") {

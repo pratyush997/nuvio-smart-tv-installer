@@ -286,7 +286,12 @@ class SdbClient private constructor(private val socket: Socket) : Closeable {
      * Uploads [data] to [remotePath] using the ADB sync protocol (SEND/DATA/DONE), waiting for the
      * TV to acknowledge every packet.
      */
-    fun push(remotePath: String, data: ByteArray, mode: Int = 33261, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
+    fun push(remotePath: String, data: ByteArray, mode: Int = 33261, onProgress: (Long, Long) -> Unit = { _, _ -> }) =
+        push(remotePath, java.io.ByteArrayInputStream(data), data.size.toLong(), mode, onProgress)
+
+    /** Uploads [size] bytes from [input] to [remotePath], one chunk in memory at a time. */
+    fun push(remotePath: String, input: java.io.InputStream, size: Long, mode: Int = 33261, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
+        val source = java.io.DataInputStream(input)
         val stream = openStream("sync:")
         val pending = java.io.ByteArrayOutputStream()
         try {
@@ -313,16 +318,20 @@ class SdbClient private constructor(private val socket: Socket) : Closeable {
             write(syncHeader("SEND", target.size) + target)
 
             val chunkSize = minOf(remoteMaxData, HOST_MAX_DATA, SYNC_MAX_CHUNK) - 8
-            var offset = 0
-            onProgress(0, data.size.toLong())
-            while (offset < data.size) {
-                val length = minOf(chunkSize, data.size - offset)
+            var offset = 0L
+            onProgress(0, size)
+            while (offset < size) {
+                val length = minOf(chunkSize.toLong(), size - offset).toInt()
                 val packet = ByteArray(8 + length)
                 System.arraycopy(syncHeader("DATA", length), 0, packet, 0, 8)
-                System.arraycopy(data, offset, packet, 8, length)
+                try {
+                    source.readFully(packet, 8, length)
+                } catch (e: java.io.EOFException) {
+                    throw InstallerException("The file to upload is shorter than expected.", e)
+                }
                 write(packet)
                 offset += length
-                onProgress(offset.toLong(), data.size.toLong())
+                onProgress(offset, size)
             }
             write(syncHeader("DONE", (System.currentTimeMillis() / 1000).toInt()))
 

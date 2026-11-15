@@ -4,11 +4,13 @@
 package tv.nuvio.installer.cli
 
 import tv.nuvio.installer.core.IdentityStore
+import tv.nuvio.installer.core.InstallTarget
 import tv.nuvio.installer.core.InstallerEvents
 import tv.nuvio.installer.core.LogLevel
 import tv.nuvio.installer.core.SamsungCertificates
 import tv.nuvio.installer.core.SigningIdentity
 import tv.nuvio.installer.core.TizenInstaller
+import tv.nuvio.installer.core.TizenPackage
 import tv.nuvio.installer.core.TizenSigner
 import java.awt.Desktop
 import java.io.File
@@ -40,7 +42,13 @@ fun main(args: Array<String>) {
             "scan" -> tv.nuvio.installer.core.TvDiscovery.scan(args[1], args.getOrNull(2)?.toInt() ?: 24).forEach {
                 println("${it.ip}  ${it.status.name}  ${it.status.model}  developerMode=${it.status.developerMode} hostPcIp=${it.status.developerIp}")
             }
-            "install" -> installer.install(args[1], File(args[2]), app = appArg(args.getOrNull(3)))
+            "install" -> if (args.getOrNull(3).equals("any", ignoreCase = true)) {
+                val file = File(args[2])
+                installer.install(args[1], file, InstallTarget.Custom(TizenPackage.inspect(file)))
+            } else {
+                installer.install(args[1], File(args[2]), app = appArg(args.getOrNull(3)))
+            }
+            "inspect" -> println(TizenPackage.inspect(File(args[1])))
             "ca" -> { SamsungCertificates(File(data, "ca")).ensureAuthorities(events); println(File(data, "ca").list()?.sorted()) }
             "releases" -> tv.nuvio.installer.core.GitHubReleases.of(appArg(args.getOrNull(1))).forEach { r -> println("${r.label} -> " + r.assets.filter { it.name.endsWith(".wgt") || it.name.endsWith(".tpk") }.joinToString { it.name }) }
             "validate" -> println(tv.nuvio.installer.core.WgtPackage.validate(File(args[1]), events))
@@ -57,7 +65,7 @@ fun main(args: Array<String>) {
                 println("Signed ${args[3]} (author chain valid: ${identity.hasValidAuthorChain()})")
             }
             else -> {
-                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt/tpk> [legacy] | launch <ip> [legacy] | releases [legacy] | type <ip> <text> [token] | uninstall <ip> [legacy] | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
+                println("usage: scan <phone-ip> [prefix] | probe <ip> | install <ip> <wgt/tpk> [legacy|any] | inspect <wgt/tpk> | launch <ip> [legacy] | releases [legacy] | type <ip> <text> [token] | uninstall <ip> [legacy] | import <identity.json> | sign <in.wgt> <identity.json> <out.wgt>")
                 exitProcess(2)
             }
         }

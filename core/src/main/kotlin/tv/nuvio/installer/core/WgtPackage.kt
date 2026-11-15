@@ -4,11 +4,9 @@
 package tv.nuvio.installer.core
 
 import org.w3c.dom.Document
-import org.w3c.dom.Element
-import java.io.ByteArrayInputStream
+import tv.nuvio.installer.core.SafeXml.elements
 import java.io.File
 import java.util.zip.ZipFile
-import javax.xml.parsers.DocumentBuilderFactory
 
 data class PackageMetadata(
     val packageId: String,
@@ -35,60 +33,52 @@ object WgtPackage {
     private const val PLUGIN_BRIDGE = "services/tizen/wrt-service-bridge.js"
     private val FALLBACK_PORT_LOGIC = Regex("11470|11471|FALLBACK_PORT|candidateIndex")
 
-    private class Contents(val files: Map<String, ByteArray>) {
-        fun has(name: String) = files.containsKey(name)
-        fun text(name: String) = files[name]?.toString(Charsets.UTF_8)
+    /** Reads only the entries asked for, so a large package is never held in memory whole. */
+    private class Contents(private val zip: ZipFile) {
+        private fun entry(name: String) = zip.getEntry(name)?.takeIf { !it.isDirectory }
+        fun has(name: String) = entry(name) != null
+        fun text(name: String) = entry(name)?.let { e -> zip.getInputStream(e).use { String(it.readBytes(), Charsets.UTF_8) } }
     }
 
-    private fun load(file: File): Contents = ZipFile(file).use { zip ->
-        Contents(zip.entries().asSequence().filter { !it.isDirectory }.associate { e -> e.name to zip.getInputStream(e).use { it.readBytes() } })
+    private fun configText(file: File): String = ZipFile(file).use { zip ->
+        val entry = zip.getEntry("config.xml") ?: throw InstallerException("Invalid Samsung package: config.xml is missing.")
+        zip.getInputStream(entry).use { String(it.readBytes(), Charsets.UTF_8) }
     }
 
-    private fun parseXml(text: String): Document {
-        val factory = DocumentBuilderFactory.newInstance()
-        factory.isNamespaceAware = true
-        return factory.newDocumentBuilder().parse(ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)))
+    private fun parseXml(text: String): Document =
+        runCatching { SafeXml.parse(text) }.getOrElse { throw InstallerException("config.xml could not be read.", it) }
+
+    fun metadata(file: File): PackageMetadata = metadataFromConfig(parseXml(configText(file)))
+
+    /** The package's metadata and its name (config.xml's <name>, empty when it has none). */
+    fun info(file: File): Pair<PackageMetadata, String> {
+        val doc = parseXml(configText(file))
+        return metadataFromConfig(doc) to SafeXml.displayText(doc.elements(WIDGETS_NS, "name"))
     }
 
-    private fun Document.elements(ns: String, local: String): List<Element> {
-        val nodes = getElementsByTagNameNS(ns, local)
-        return (0 until nodes.length).map { nodes.item(it) as Element }
-    }
-
-    private fun Element.elements(ns: String, local: String): List<Element> {
-        val nodes = getElementsByTagNameNS(ns, local)
-        return (0 until nodes.length).map { nodes.item(it) as Element }
-    }
-
-    fun metadata(file: File): PackageMetadata {
-        val config = ZipFile(file).use { zip ->
-            val entry = zip.getEntry("config.xml") ?: throw InstallerException("Invalid Samsung package: config.xml is missing.")
-            zip.getInputStream(entry).use { String(it.readBytes(), Charsets.UTF_8) }
-        }
-        return metadataFromConfig(config)
-    }
-
-    private fun metadataFromConfig(config: String): PackageMetadata {
-        val doc = parseXml(config)
+    private fun metadataFromConfig(doc: Document): PackageMetadata {
         val application = doc.elements(TIZEN_NS, "application").firstOrNull()
             ?: throw InstallerException("config.xml does not contain tizen:application.")
         return PackageMetadata(
-            packageId = application.getAttribute("package"),
-            appId = application.getAttribute("id"),
-            version = doc.documentElement.getAttribute("version"),
-            requiredVersion = application.getAttribute("required_version"),
+            packageId = application.getAttribute("package").trim(),
+            appId = application.getAttribute("id").trim(),
+            version = doc.documentElement.getAttribute("version").trim(),
+            requiredVersion = application.getAttribute("required_version").trim(),
         )
     }
 
     /** Throws when the package lacks Nuvio's local Tizen services (same rules as the desktop installer). */
     fun validate(file: File, events: InstallerEvents): PackageMetadata {
-        val zip = load(file)
+        ZipFile(file).use { return validate(Contents(it), events) }
+    }
+
+    private fun validate(zip: Contents, events: InstallerEvents): PackageMetadata {
         val configText = zip.text("config.xml") ?: throw InstallerException("Invalid Samsung WGT: config.xml is missing.")
-        val metadata = metadataFromConfig(configText)
+        val doc = parseXml(configText)
+        val metadata = metadataFromConfig(doc)
         if (!Regex("^[A-Za-z0-9]{10}$").matches(metadata.packageId) || !metadata.appId.startsWith("${metadata.packageId}.")) {
             throw InstallerException("Unexpected Samsung package id \"${metadata.packageId}\" / app id \"${metadata.appId}\".")
         }
-        val doc = parseXml(configText)
         val features = doc.elements(WIDGETS_NS, "feature")
         val services = doc.elements(TIZEN_NS, "service")
         fun serviceWithContent(src: String, id: String? = null) = services.firstOrNull { service ->

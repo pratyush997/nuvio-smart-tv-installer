@@ -5,12 +5,26 @@ package tv.nuvio.installer.core
 
 import java.io.File
 
-/** What the installer connection found on the TV. [apps] holds the list entry of each Nuvio app that is installed. */
-data class TvInfo(val duid: String, val platformVersion: String, val apps: Map<NuvioApp, Map<String, String>> = emptyMap()) {
+/**
+ * What the installer connection found on the TV. [apps] holds the list entry of each Nuvio app
+ * that is installed; [list] is the TV's whole app list, for apps installed from a picked file.
+ */
+data class TvInfo(
+    val duid: String,
+    val platformVersion: String,
+    val apps: Map<NuvioApp, Map<String, String>> = emptyMap(),
+    val list: List<Map<String, String>> = emptyList(),
+) {
     /** Nuvio TV's entry in the TV's app list; null when it is not installed. */
     val installedApp: Map<String, String>? get() = apps[NuvioApp.TV]
 
     fun app(app: NuvioApp): Map<String, String>? = apps[app]
+
+    /** [target]'s entry in the TV's app list; null when it is not installed. */
+    fun installed(target: InstallTarget): Map<String, String>? = when (target) {
+        is InstallTarget.Known -> apps[target.app]
+        is InstallTarget.Custom -> target.find(list)
+    }
 }
 
 /** Thrown when Nuvio is already on the TV but no certificate that could update it is available. */
@@ -77,6 +91,9 @@ class TizenInstaller(
                 .filter { it.isNotEmpty() }
 
         private fun isClosedOutput(output: String) = output.lines().any { it.trim().equals("closed", ignoreCase = true) }
+
+        /** Ids read back from the TV go into shell commands too; anything unusual is skipped. */
+        private val SAFE_ID = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
     }
 
     // ------------------------------------------------------------------ TV helpers
@@ -111,20 +128,19 @@ class TizenInstaller(
     private fun listApps(client: SdbClient): List<Map<String, String>> =
         parseAppList(shell(client, "0 vd_applist", SdbClient.ShellOptions(timeoutMs = 30_000), log = false))
 
-    private fun findApp(client: SdbClient, app: NuvioApp): Map<String, String>? = NuvioApp.find(listApps(client), app)
+    private fun findApp(client: SdbClient, target: InstallTarget): Map<String, String>? = target.find(listApps(client))
 
-    private fun withIds(apps: List<Map<String, String>>, ids: Collection<String>): Map<String, String>? =
-        apps.firstOrNull { entry -> listOf("app_id", "app_tizen_id", "app_package_id", "package_id").any { key -> entry[key]?.trim() in ids } }
+    private fun withIds(apps: List<Map<String, String>>, ids: Collection<String>): Map<String, String>? = InstallTarget.withIds(apps, ids)
 
     /**
      * The installed app this package would replace. For Nuvio TV: any Nuvio TV entry (older
      * releases used other ids), else one with [metadata]'s ids. For Legacy only the package's own
      * ids: its .tpk and .wgt are separate packages, so one never blocks installing the other.
      */
-    private fun findInstalled(client: SdbClient, app: NuvioApp, metadata: PackageMetadata): Map<String, String>? {
+    private fun findInstalled(client: SdbClient, target: InstallTarget, metadata: PackageMetadata): Map<String, String>? {
         val apps = listApps(client)
-        val own = withIds(apps, listOf(metadata.packageId, metadata.appId).filter { it.isNotBlank() })
-        return if (app == NuvioApp.TV) NuvioApp.find(apps, app) ?: own else own
+        val own = withIds(apps, listOf(metadata.packageId, metadata.appId))
+        return if (target.isNuvioTv) target.find(apps) ?: own else own
     }
 
     private fun failIfOutputFailed(output: String, context: String) {
@@ -150,16 +166,26 @@ class TizenInstaller(
         if (apps.containsKey(NuvioApp.LEGACY)) events.info("Nuvio Legacy is installed.")
         val known = identities.candidatesFor(duid).isNotEmpty()
         events.info(if (known) "A certificate for this TV is saved on this phone." else "No certificate for this TV is saved on this phone yet.")
-        TvInfo(duid, version, apps)
+        TvInfo(duid, version, apps, list)
     }
 
     /**
      * Installs [file] (a .wgt or .tpk) as [app]. With [allowSignIn] false, a TV without a saved
      * certificate fails with [SignInNeededException].
      */
-    fun install(ip: String, file: File, allowSignIn: Boolean = true, app: NuvioApp = NuvioApp.TV) {
+    fun install(ip: String, file: File, allowSignIn: Boolean = true, app: NuvioApp = NuvioApp.TV) =
+        install(ip, file, InstallTarget.Known(app), allowSignIn)
+
+    /** Installs [file] for [target]: a Nuvio app, or any other app the user picked. */
+    fun install(ip: String, file: File, target: InstallTarget, allowSignIn: Boolean = true) {
         events.stage(InstallStage.PACKAGE)
-        val (kind, metadata) = TizenPackage.read(file, app, events)
+        val (kind, metadata) = when (target) {
+            is InstallTarget.Known -> TizenPackage.read(file, target.app, events)
+            is InstallTarget.Custom -> TizenPackage.inspect(file).let { info ->
+                info.known?.let { throw InstallerException("This file is ${it.label}. Install it from the ${it.label} card.") }
+                info.kind to info.metadata
+            }
+        }
         events.info("Package ${metadata.packageId} (${metadata.appId}) version ${metadata.version}, .${kind.extension}.")
 
         events.stage(InstallStage.CONNECT)
@@ -174,8 +200,8 @@ class TizenInstaller(
             }
 
             events.stage(InstallStage.SIGN)
-            val installed = runCatching { findInstalled(client, app, metadata) }.getOrNull()
-            val preflight = CertificatePreflight.check(validCandidates(duid), installed, app = app)
+            val installed = runCatching { findInstalled(client, target, metadata) }.getOrNull()
+            val preflight = CertificatePreflight.check(validCandidates(duid), installed, target)
             preflight.notes.forEach(events::info)
             preflight.blocked?.let { throw it }
             val candidates = preflight.usable.ifEmpty {
@@ -188,7 +214,8 @@ class TizenInstaller(
 
             var lastError: Exception? = null
             for ((index, identity) in candidates.withIndex()) {
-                val signed = File(workDirectory, "signed/${metadata.packageId}-${metadata.version}-signed.${kind.extension}")
+                // Nothing from the package in the name: it could point outside the work folder.
+                val signed = File(workDirectory, "signed/package-signed.${kind.extension}")
                 try {
                     events.info("Signing the package${if (candidates.size > 1) " (certificate ${index + 1}/${candidates.size})" else ""}...")
                     TizenSigner.signWgt(file, signed, identity.author(), identity.distributor())
@@ -196,7 +223,7 @@ class TizenInstaller(
                     events.stage(InstallStage.UPLOAD)
                     val remote = upload(client, signed, kind)
                     events.stage(InstallStage.INSTALL)
-                    installUploaded(client, metadata, remote, app)
+                    installUploaded(client, metadata, remote, target)
                     identities.save(
                         identity.copy(
                             duid = duid,
@@ -204,7 +231,7 @@ class TizenInstaller(
                             lastSuccessfulPackageId = metadata.packageId,
                         )
                     )
-                    events.success("${app.label} ${metadata.version} is installed. Open it from the TV's Apps screen.")
+                    events.success("${"${target.label} ${metadata.version}".trim()} is installed. Open it from the TV's Apps screen.")
                     return
                 } catch (e: Exception) {
                     lastError = e
@@ -213,7 +240,7 @@ class TizenInstaller(
                         events.info("The TV rejected this certificate; trying the next saved one.")
                         continue
                     }
-                    if (rejected && installed != null) throw CertificatePreflight.rejectedUpdate(installed, e, app)
+                    if (rejected && installed != null) throw CertificatePreflight.rejectedUpdate(installed, e, target)
                     throw e
                 } finally {
                     signed.delete()
@@ -228,7 +255,10 @@ class TizenInstaller(
      * the app's entry from the TV's app list (from [probe]), null when it is not installed.
      */
     fun preflight(duid: String, installed: Map<String, String>?, app: NuvioApp = NuvioApp.TV): Preflight =
-        CertificatePreflight.check(validCandidates(duid), installed, app = app)
+        preflight(duid, installed, InstallTarget.Known(app))
+
+    fun preflight(duid: String, installed: Map<String, String>?, target: InstallTarget): Preflight =
+        CertificatePreflight.check(validCandidates(duid), installed, target)
 
     private fun validCandidates(duid: String): List<SigningIdentity> =
         identities.candidatesFor(duid).filter { identity ->
@@ -246,7 +276,7 @@ class TizenInstaller(
      */
     fun ensureCertificate(ip: String, app: NuvioApp = NuvioApp.TV): Boolean {
         val (duid, installed) = connect(ip).use { client ->
-            readDuid(client) to runCatching { findApp(client, app) }.getOrNull()
+            readDuid(client) to runCatching { findApp(client, InstallTarget.Known(app)) }.getOrNull()
         }
         val preflight = CertificatePreflight.check(validCandidates(duid), installed, app = app)
         preflight.notes.forEach(events::info)
@@ -320,23 +350,25 @@ class TizenInstaller(
         } else {
             events.info("The TV closed the folder setup command; continuing with the upload.")
         }
-        val data = signed.readBytes()
+        val size = signed.length()
         events.command("$ push ${signed.name} $remote")
-        client.push(remote, data) { done, total -> events.progress("Uploading to TV", done, total) }
+        signed.inputStream().buffered().use { input ->
+            client.push(remote, input, size) { done, total -> events.progress("Uploading to TV", done, total) }
+        }
 
         val listing = runCatching {
             shell(client, "0 ls -l $remote", SdbClient.ShellOptions(idleAfterDataMs = 800, noOutputSuccessMs = 2500, timeoutMs = 10_000), log = false)
         }.getOrDefault("")
         val remoteSize = listing.trim().split(Regex("\\s+")).getOrNull(4)?.toLongOrNull() ?: 0L
         when {
-            isClosedOutput(listing) || remoteSize == 0L -> events.info("Upload finished (${data.size} bytes).")
-            remoteSize != data.size.toLong() -> throw InstallerException("Upload failed: the TV has $remoteSize bytes, expected ${data.size}.")
-            else -> events.success("Uploaded ${data.size} bytes.")
+            isClosedOutput(listing) || remoteSize == 0L -> events.info("Upload finished ($size bytes).")
+            remoteSize != size -> throw InstallerException("Upload failed: the TV has $remoteSize bytes, expected $size.")
+            else -> events.success("Uploaded $size bytes.")
         }
         return remote
     }
 
-    private fun installUploaded(client: SdbClient, metadata: PackageMetadata, remote: String, app: NuvioApp) {
+    private fun installUploaded(client: SdbClient, metadata: PackageMetadata, remote: String, target: InstallTarget) {
         val ids = listOf(metadata.packageId, metadata.appId).filter { it.isNotBlank() }.distinct()
         var certificateError: Exception? = null
         var lastError: Exception? = null
@@ -344,9 +376,9 @@ class TizenInstaller(
             try {
                 events.info("Installing on the TV (this can take a minute)...")
                 val output = shell(client, "0 vd_appinstall $id $remote", SdbClient.ShellOptions(timeoutMs = 180_000, completeWhen = COMMAND_COMPLETE))
-                if (isPlatformIncompatibility(output)) throw InstallerException("This TV's Tizen version is too old for this ${app.label} package.")
+                if (isPlatformIncompatibility(output)) throw InstallerException("This TV's Tizen version is too old for this ${target.label} package.")
                 failIfOutputFailed(output, "vd_appinstall $id")
-                verifyInstalled(client, metadata, app)
+                verifyInstalled(client, metadata, target)
                 return
             } catch (e: InstallerException) {
                 if (isPlatformIncompatibility(e.message.orEmpty())) throw e
@@ -362,9 +394,9 @@ class TizenInstaller(
         throw certificateError ?: lastError ?: InstallerException("vd_appinstall failed.")
     }
 
-    private fun verifyInstalled(client: SdbClient, metadata: PackageMetadata, nuvio: NuvioApp) {
+    private fun verifyInstalled(client: SdbClient, metadata: PackageMetadata, nuvio: InstallTarget) {
         val app = try {
-            withIds(listApps(client), listOf(metadata.packageId, metadata.appId).filter { it.isNotBlank() })
+            withIds(listApps(client), listOf(metadata.packageId, metadata.appId))
         } catch (e: Exception) {
             throw InstallerException("The install command finished, but the installed app list could not be read to confirm it: ${e.message}")
         } ?: throw InstallerException("The install command finished but ${nuvio.label} is not listed on the TV. Retry the install.")
@@ -377,35 +409,41 @@ class TizenInstaller(
         events.success("Verified on the TV: ${app["app_id"] ?: metadata.appId} ${installed}".trim())
     }
 
-    fun launch(ip: String, nuvio: NuvioApp = NuvioApp.TV) = connect(ip).use { client ->
-        val app = findApp(client, nuvio) ?: throw InstallerException("${nuvio.label} is not installed on this TV.")
-        val id = app["app_id"] ?: app["app_tizen_id"] ?: nuvio.ids.first()
+    fun launch(ip: String, nuvio: NuvioApp = NuvioApp.TV) = launch(ip, InstallTarget.Known(nuvio))
+
+    fun launch(ip: String, target: InstallTarget) = connect(ip).use { client ->
+        val app = findApp(client, target) ?: throw InstallerException("${target.label} is not installed on this TV.")
+        val fallback = (target as? InstallTarget.Known)?.app?.ids?.first()
+        val id = listOfNotNull(app["app_id"], app["app_tizen_id"], fallback).map { it.trim() }.firstOrNull { SAFE_ID.matches(it) }
+            ?: throw InstallerException("The TV lists ${target.label} without an app id it can open.")
         val output = shell(client, "0 was_execute $id", SdbClient.ShellOptions(timeoutMs = 30_000))
         failIfOutputFailed(output, "Launch failed")
-        events.success("${nuvio.label} launched on the TV.")
+        events.success("${target.label} launched on the TV.")
     }
 
-    fun uninstall(ip: String, nuvio: NuvioApp = NuvioApp.TV) = connect(ip).use { client ->
-        val app = findApp(client, nuvio) ?: run {
-            events.info("${nuvio.label} is not installed on this TV.")
+    fun uninstall(ip: String, nuvio: NuvioApp = NuvioApp.TV) = uninstall(ip, InstallTarget.Known(nuvio))
+
+    fun uninstall(ip: String, target: InstallTarget) = connect(ip).use { client ->
+        val app = findApp(client, target) ?: run {
+            events.info("${target.label} is not installed on this TV.")
             return@use
         }
         // A .tpk's package id has a dot in it ("NuvioTV002.Nuvio"), so the full app id is tried too.
         val ids = listOfNotNull(
             app["app_package_id"], app["package_id"], app["app_tizen_id"]?.substringBefore('.'), app["app_tizen_id"], app["app_id"],
-        ).filter { it.isNotBlank() }.distinct()
+        ).map { it.trim() }.filter { SAFE_ID.matches(it) }.distinct()
         for (id in ids) {
             val output = runCatching {
                 shell(client, "0 vd_appuninstall $id", SdbClient.ShellOptions(timeoutMs = 120_000, completeWhen = UNINSTALL_COMPLETE))
             }.getOrElse { e -> events.info("vd_appuninstall $id: ${e.message}"); "" }
-            if (findApp(client, nuvio) == null) {
-                events.success("${nuvio.label} was removed from the TV.")
+            if (findApp(client, target) == null) {
+                events.success("${target.label} was removed from the TV.")
                 return@use
             }
             if (output.isNotBlank()) events.info("The TV did not remove the app with id $id.")
         }
         throw InstallerException(
-            "The TV did not allow removing ${nuvio.label} over the network. Remove it from the TV instead: Apps › Settings (gear) › ${nuvio.label} › Delete."
+            "The TV did not allow removing ${target.label} over the network. Remove it from the TV instead: Apps › Settings (gear) › ${target.label} › Delete."
         )
     }
 }

@@ -29,6 +29,13 @@ object CertificatePreflight {
         installed: Map<String, String>?,
         now: Instant = Instant.now(),
         app: NuvioApp = NuvioApp.TV,
+    ): Preflight = check(candidates, installed, InstallTarget.Known(app), now)
+
+    fun check(
+        candidates: List<SigningIdentity>,
+        installed: Map<String, String>?,
+        target: InstallTarget,
+        now: Instant = Instant.now(),
     ): Preflight {
         val notes = ArrayList<String>()
         val usable = ArrayList<SigningIdentity>()
@@ -44,8 +51,8 @@ object CertificatePreflight {
         }
         if (installed == null) return Preflight(usable, notes, null)
 
-        val nuvio = nuvioName(installed, app)
-        val short = if (app == NuvioApp.TV) "Nuvio" else app.label
+        val nuvio = nameOnTv(installed, target)
+        val short = target.shortLabel
         if (usable.isEmpty()) {
             val blocked = if (expired.isNotEmpty()) {
                 CertificateExpiredException(
@@ -54,7 +61,7 @@ object CertificatePreflight {
                         "Uninstall $short from the TV, then install again: a new certificate is created during the install. " +
                         "$short's settings on the TV are lost when it is uninstalled."
                 )
-            } else missingIdentity(installed, app)
+            } else missingIdentity(installed, target)
             return Preflight(usable, notes, blocked)
         }
         if (usable.none { it.lastSuccessfulInstallAt != null }) {
@@ -64,30 +71,35 @@ object CertificatePreflight {
         return Preflight(usable, notes, null)
     }
 
-    fun missingIdentity(installed: Map<String, String>, app: NuvioApp = NuvioApp.TV) = MissingIdentityException(
-        "${nuvioName(installed, app)} is already installed on this TV, signed with a certificate " +
+    fun missingIdentity(installed: Map<String, String>, app: NuvioApp = NuvioApp.TV) = missingIdentity(installed, InstallTarget.Known(app))
+
+    fun missingIdentity(installed: Map<String, String>, target: InstallTarget) = MissingIdentityException(
+        "${nameOnTv(installed, target)} is already installed on this TV, signed with a certificate " +
             "that is not on this phone. A new certificate cannot update it.\n\n" +
-            if (app == NuvioApp.TV) {
+            if (target.isNuvioTv) {
                 "Either import the certificate file from the desktop Nuvio TV Installer, " +
                     "or uninstall Nuvio from the TV first (then install again)."
             } else {
                 "Either import the certificate it was installed with, " +
-                    "or uninstall ${app.label} from the TV first (then install again)."
+                    "or uninstall ${target.label} from the TV first (then install again)."
             }
     )
 
     /** The TV refused the update although the app is installed: it was signed with another certificate. */
-    fun rejectedUpdate(installed: Map<String, String>, cause: Exception, app: NuvioApp = NuvioApp.TV) = MissingIdentityException(
-        "The TV refused the update: ${nuvioName(installed, app)} on this TV was installed with a " +
+    fun rejectedUpdate(installed: Map<String, String>, cause: Exception, app: NuvioApp = NuvioApp.TV) =
+        rejectedUpdate(installed, cause, InstallTarget.Known(app))
+
+    fun rejectedUpdate(installed: Map<String, String>, cause: Exception, target: InstallTarget) = MissingIdentityException(
+        "The TV refused the update: ${nameOnTv(installed, target)} on this TV was installed with a " +
             "different certificate than the one on this phone.\n\n" +
-            "Import the certificate that installed it (${if (app == NuvioApp.TV) "from the desktop Nuvio TV Installer or a backup" else "from a backup"}), " +
-            "or uninstall ${if (app == NuvioApp.TV) "Nuvio" else app.label} from the TV and install again.",
+            "Import the certificate that installed it (${if (target.isNuvioTv) "from the desktop Nuvio TV Installer or a backup" else "from a backup"}), " +
+            "or uninstall ${target.shortLabel} from the TV and install again.",
         cause,
     )
 
     /** Legacy's reported version is its app shell's, which users never see, so it is left out. */
-    private fun nuvioName(installed: Map<String, String>, app: NuvioApp): String {
+    private fun nameOnTv(installed: Map<String, String>, target: InstallTarget): String {
         val version = installed["app_version"].orEmpty().trim()
-        return if (version.isEmpty() || !app.tracksVersions) app.label else "${app.label} $version"
+        return if (version.isEmpty() || target is InstallTarget.Known && !target.tracksVersions) target.label else "${target.label} $version"
     }
 }

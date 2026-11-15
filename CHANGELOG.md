@@ -2,6 +2,21 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-11-15
+
+### Added
+- **Another app**: a new card under the Nuvio cards installs any Samsung TV app file (`.wgt` or `.tpk`) from the phone. **Choose a file** reads it right away and shows its name, version and size, or says why it can't be used. **Install on TV** runs the same 7 checks as Nuvio, then signs, uploads and installs it. Once it is on the TV: **Open on TV**, **Reinstall** and **Uninstall**. The first time, a notice says the app doesn't check what the file does. A Nuvio TV or Nuvio Legacy file goes to its own card. The picked app is not updated automatically.
+- CLI: `inspect <file>` and `install <ip> <file> any`.
+
+### Changed
+- The Nuvio TV and Nuvio Legacy cards only accept their own files. Another app's file gets "This file is not Nuvio Legacy. To install another app, use the Another app card."
+- Signing and uploading read the file in pieces instead of all at once, so large apps don't run the phone out of memory.
+
+### Fixed
+- Package ids, app ids and versions are now checked for every file, not only Nuvio TV's. They go into commands run on the TV, so a file with unusual ones is refused.
+- Signing a file that was already signed by someone else left its `signature2.xml` (and later ones) in the package, which the TV would reject. All old signatures are now removed.
+- The signed file's name no longer comes from the package, so a crafted version can't point outside the app's work folder.
+
 ## [1.5.5] - 2026-11-13
 
 ### Added
@@ -119,6 +134,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.6.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.6.0
 [1.5.5]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.5
 [1.5.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.0
 [1.4.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.4.0
