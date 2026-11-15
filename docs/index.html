@@ -402,7 +402,7 @@ footer p { margin: 4px 0; }
       <a href="#more">Features</a>
       <a href="#faq">FAQ</a>
     </div>
-    <a class="btn small js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest">Download</a>
+    <a class="btn small js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.0/TVInstallerForNuvio-1.6.0.apk">Download</a>
   </div>
 </nav>
 
@@ -416,8 +416,8 @@ footer p { margin: 4px 0; }
       <h1>Nuvio on your Samsung TV, <span class="grad-text">straight from your phone.</span></h1>
       <p class="lead">TV Installer puts Nuvio TV on your Samsung TV and keeps it updated. No computer, no Tizen Studio. About 10 minutes the first time, then updates take one tap.</p>
       <div class="cta-row">
-        <a class="btn js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest">
-          <svg aria-hidden="true"><use href="#i-download"/></svg><span class="js-download-label">Download for Android</span>
+        <a class="btn js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.0/TVInstallerForNuvio-1.6.0.apk">
+          <svg aria-hidden="true"><use href="#i-download"/></svg><span class="js-download-label">Download v1.6.0</span>
         </a>
       </div>
       <p class="cta-note">Free and open source · Android 8.0 or newer · <a href="https://github.com/pratyush997/nuvio-smart-tv-installer">Source on GitHub</a></p>
@@ -896,8 +896,8 @@ footer p { margin: 4px 0; }
     <img src="icon.svg" alt="">
     <h2>Get Nuvio on your TV tonight</h2>
     <p>Download the app, open it, and follow the guide. About 10 minutes.</p>
-    <a class="btn js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/latest">
-      <svg aria-hidden="true"><use href="#i-download"/></svg><span class="js-download-label">Download for Android</span>
+    <a class="btn js-download" href="https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.0/TVInstallerForNuvio-1.6.0.apk">
+      <svg aria-hidden="true"><use href="#i-download"/></svg><span class="js-download-label">Download v1.6.0</span>
     </a>
     <p class="cta-note" style="margin-top:16px">Android asks you to allow installing apps from your browser the first time.</p>
   </div>
@@ -918,7 +918,7 @@ footer p { margin: 4px 0; }
 </footer>
 
 <script>
-// Point the download buttons straight at the latest APK. Falls back to the releases page.
+// Point the download buttons at the newest APK. Without it, they keep the version written above.
 fetch("https://api.github.com/repos/pratyush997/nuvio-smart-tv-installer/releases/latest")
   .then(r => r.ok ? r.json() : Promise.reject())
   .then(rel => {
