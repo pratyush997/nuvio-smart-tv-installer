@@ -2,6 +2,11 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] - 2026-11-19
+
+### Fixed
+- **Nuvio Legacy** wouldn't install on some TVs: it said "Connect to the TV first, so the app can pick the right Nuvio Legacy file for it." even when the TV was connected. The app couldn't read the TV's Tizen version, because the command it used returns nothing on newer TVs (seen on Tizen 9). It now asks the TV's connection service directly (the way `sdb capability` does) and falls back to the old command. The TV card shows the Tizen version again, and the install-time Tizen check works.
+
 ## [1.6.0] - 2026-11-15
 
 ### Added
@@ -134,6 +139,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Samsung sign-in and certificate creation, Tizen package signing, upload over SDB.
 - Import of certificates from the desktop Nuvio TV Installer; certificate backup and restore.
 
+[1.6.1]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.6.1
 [1.6.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.6.0
 [1.5.5]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.5
 [1.5.0]: https://github.com/pratyush997/nuvio-smart-tv-installer/releases/tag/v1.5.0
