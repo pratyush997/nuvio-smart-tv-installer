@@ -65,6 +65,11 @@ class TizenInstaller(
         fun isPlatformIncompatibility(text: String): Boolean =
             Regex("install failed\\s*\\[\\s*(?:118019|118\\s*,\\s*-?19)\\s*]", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
+        /** The `platform_version` value from sdbd's capability output; null when it is missing. */
+        fun parsePlatformVersion(output: String): String? =
+            Regex("(?:^|[\\r\\n])\\s*platform_version\\s*[:=]\\s*(\\S+)", RegexOption.IGNORE_CASE)
+                .find(output)?.groupValues?.get(1)?.trim()?.takeIf { parseVersion(it) != null }
+
         fun parseVersion(value: String): List<Int>? {
             // Not \b: in "v1.2.0" there is no word boundary between "v" and "1".
             val m = Regex("(?<![\\d.])(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?").find(value) ?: return null
@@ -120,10 +125,27 @@ class TizenInstaller(
         return duid
     }
 
-    private fun readPlatformVersion(client: SdbClient): String = runCatching {
-        val output = shell(client, "0 capability", SdbClient.ShellOptions(timeoutMs = 10_000), log = false)
-        Regex("(?:^|\\n)\\s*platform_version\\s*[:=]\\s*([^\\s\\r\\n]+)", RegexOption.IGNORE_CASE).find(output)?.groupValues?.get(1)?.trim().orEmpty()
-    }.getOrDefault("")
+    /**
+     * The TV's Tizen version. sdbd answers its own `capability:` service (what `sdb capability`
+     * uses) with `key:value` lines; `shell:0 capability` is tried after it, for TVs that only
+     * answer that. Blank when neither says.
+     */
+    private fun readPlatformVersion(client: SdbClient): String {
+        val options = SdbClient.ShellOptions(timeoutMs = 10_000)
+        val attempts = listOf<Pair<String, () -> String>>(
+            "capability:" to { client.service("capability:", options) },
+            "shell:0 capability" to { client.shell("0 capability", options) },
+        )
+        for ((name, read) in attempts) {
+            val output = runCatching(read).getOrElse { e ->
+                events.info("TV did not answer $name (${e.message}).")
+                null
+            } ?: continue
+            parsePlatformVersion(output)?.let { return it }
+            events.info("TV answered $name without a Tizen version: ${output.trim().take(200).ifEmpty { "(nothing)" }}")
+        }
+        return ""
+    }
 
     private fun listApps(client: SdbClient): List<Map<String, String>> =
         parseAppList(shell(client, "0 vd_applist", SdbClient.ShellOptions(timeoutMs = 30_000), log = false))

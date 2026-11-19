@@ -74,6 +74,11 @@ class CoreTest {
         assertEquals(listOf(1, 3, 11), TizenInstaller.parseVersion("Nuvio TV v1.3.11 (pre-release)"))
         assertTrue(TizenInstaller.isCertificateRejection("install failed[118012]") && TizenInstaller.isCertificateRejection("install failed[118, -12]"))
         assertTrue(TizenInstaller.isPlatformIncompatibility("install failed[118019]"))
+        // sdbd's capability: service output (key:value lines).
+        assertEquals("7.0", TizenInstaller.parsePlatformVersion("secure_protocol:enabled\r\nintershell_support:disabled\nplatform_version:7.0\nproduct_version:3.0\n"))
+        assertEquals("4.0", TizenInstaller.parsePlatformVersion("platform_version=4.0"))
+        assertEquals(null, TizenInstaller.parsePlatformVersion("sh: capability: not found"))
+        assertEquals(null, TizenInstaller.parsePlatformVersion("platform_version:unknown\n"))
     }
 
     @Test

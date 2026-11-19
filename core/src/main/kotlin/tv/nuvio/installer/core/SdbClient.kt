@@ -245,8 +245,15 @@ class SdbClient private constructor(private val socket: Socket) : Closeable {
     // ---------------------------------------------------------------- public API
 
     /** Runs `shell:<command>` and returns its output. */
-    fun shell(command: String, options: ShellOptions = ShellOptions()): String {
-        val stream = openStream("shell:$command")
+    fun shell(command: String, options: ShellOptions = ShellOptions()): String = service("shell:$command", options)
+
+    /**
+     * Opens any sdbd service (like `shell:<command>` or `capability:`) and returns what it sends
+     * back before it closes or [options] say it is done.
+     */
+    fun service(destination: String, options: ShellOptions = ShellOptions()): String {
+        val command = destination.removePrefix("shell:")
+        val stream = openStream(destination)
         val out = StringBuilder()
         val start = System.nanoTime()
         fun elapsedMs() = (System.nanoTime() - start) / 1_000_000
