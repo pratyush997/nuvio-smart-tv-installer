@@ -22,12 +22,12 @@ TV Installer for Nuvio is made by **Pratyush** ([@pratyush997](https://github.co
 
 - Website: https://pratyush997.github.io/nuvio-smart-tv-installer/
 - Source code: https://github.com/pratyush997/nuvio-smart-tv-installer
-- Download: [TVInstallerForNuvio-1.6.0.apk](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.0/TVInstallerForNuvio-1.6.0.apk) (all versions: [releases](https://github.com/pratyush997/nuvio-smart-tv-installer/releases))
+- Download: [TVInstallerForNuvio-1.6.1.apk](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.1/TVInstallerForNuvio-1.6.1.apk) (all versions: [releases](https://github.com/pratyush997/nuvio-smart-tv-installer/releases))
 - Report a problem: [issues](https://github.com/pratyush997/nuvio-smart-tv-installer/issues/new/choose)
 
 ## Download
 
-Download [TVInstallerForNuvio-1.6.0.apk](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.0/TVInstallerForNuvio-1.6.0.apk) and open it on your phone. Android asks you to allow installing apps from your browser or file manager the first time.
+Download [TVInstallerForNuvio-1.6.1.apk](https://github.com/pratyush997/nuvio-smart-tv-installer/releases/download/v1.6.1/TVInstallerForNuvio-1.6.1.apk) and open it on your phone. Android asks you to allow installing apps from your browser or file manager the first time.
 
 Requires Android 8.0 or newer.
 
